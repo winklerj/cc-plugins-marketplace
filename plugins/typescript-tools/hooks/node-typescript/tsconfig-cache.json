@@ -1,0 +1,42 @@
+{
+  "hashes": {
+    "/Users/robbwinkle/git/outline-workflows/tsconfig.json": "3a341421c0da6c6e4af0d304f44431597ea1f0d0172206485973c7ca125458c5"
+  },
+  "mappings": {
+    "server": {
+      "configPath": "/Users/robbwinkle/git/outline-workflows/tsconfig.json",
+      "excludes": [
+        "**/*.test.ts",
+        "dist"
+      ]
+    },
+    "frontend": {
+      "configPath": "/Users/robbwinkle/git/outline-workflows/tsconfig.json",
+      "excludes": [
+        "**/*.test.ts",
+        "dist"
+      ]
+    },
+    "shared": {
+      "configPath": "/Users/robbwinkle/git/outline-workflows/tsconfig.json",
+      "excludes": [
+        "**/*.test.ts",
+        "dist"
+      ]
+    },
+    "index.ts": {
+      "configPath": "/Users/robbwinkle/git/outline-workflows/tsconfig.json",
+      "excludes": [
+        "**/*.test.ts",
+        "dist"
+      ]
+    },
+    "bun-env.d.ts": {
+      "configPath": "/Users/robbwinkle/git/outline-workflows/tsconfig.json",
+      "excludes": [
+        "**/*.test.ts",
+        "dist"
+      ]
+    }
+  }
+}

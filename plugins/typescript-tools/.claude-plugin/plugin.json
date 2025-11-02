@@ -1,0 +1,17 @@
+{
+    "name": "typescript-tools",
+    "version": "1.0.0",
+    "description": "Typescript coding agents and tools",
+    "author": {
+      "name": "Robb Winkle",
+      "email": "robb@devfit.com",
+      "url": "https://github.com/winklerj"
+    },
+    "repository": "https://github.com/winklerj/cc-plugins-marketplace",
+    "license": "Apache-2.0",
+    "keywords": ["claude code", "typescript", "coding", "agents", "tools"],
+    "commands": ["./commands/worktree.md"],
+    "agents": "./agents/",
+    "hooks": "./hooks/hooks.json",
+    "mcpServers": "./mcp-servers/mcp-servers.json"
+  }
