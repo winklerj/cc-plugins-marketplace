@@ -13,6 +13,15 @@
         "author": {
           "name": "Robb Winkle"
         }
+      },
+      {
+        "name": "beads-task-management",
+        "source": "./plugins/beads-task-management",
+        "description": "Git-backed task management for AI agents using beads bd cli",
+        "version": "1.0.0",
+        "author": {
+          "name": "Robb Winkle"
+        }
       }
     ]
   }
