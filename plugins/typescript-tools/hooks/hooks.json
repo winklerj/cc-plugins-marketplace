@@ -6,7 +6,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/.claude/hooks/compaction-checkpoint.sh",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/compaction-checkpoint.sh",
                         "timeout": 30000
                     }
                 ]
@@ -18,7 +18,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/.claude/hooks/add-guideline-context.sh",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/add-guideline-context.sh",
                         "timeout": 5000
                     }
                 ]
