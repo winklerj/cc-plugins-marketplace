@@ -26,6 +26,5 @@
         "./agents/tools-lister.md",
         "./agents/verification-agent.md"
     ],
-    "hooks": "./hooks/hooks.json",
     "mcpServers": "./mcp-servers/mcp-servers.json"
   }
