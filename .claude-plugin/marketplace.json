@@ -22,6 +22,24 @@
         "author": {
           "name": "Robb Winkle"
         }
+      },
+      {
+        "name": "solve-it",
+        "source": "./plugins/solve-it",
+        "description": "Systematic problem-solving using George Polya's 'How to Solve It' methodology, adapted for software engineering",
+        "version": "1.0.0",
+        "author": {
+          "name": "Claude Code Plugins"
+        }
+      },
+      {
+        "name": "modern-css",
+        "source": "./plugins/modern-css",
+        "description": "Modern vanilla CSS techniques for building responsive, maintainable web interfaces without preprocessors or frameworks",
+        "version": "1.0.0",
+        "author": {
+          "name": "Claude Code Plugins"
+        }
       }
     ]
   }

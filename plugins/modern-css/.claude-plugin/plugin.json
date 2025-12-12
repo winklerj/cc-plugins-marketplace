@@ -1,0 +1,21 @@
+{
+  "name": "modern-css",
+  "version": "1.0.0",
+  "description": "Modern vanilla CSS techniques for building responsive, maintainable web interfaces without preprocessors or frameworks. Covers CSS custom properties, OKLCH colors, :has() selector, cascade layers, container queries, view transitions, and more.",
+  "author": {
+    "name": "Claude Code Plugins"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "css",
+    "vanilla-css",
+    "responsive",
+    "theming",
+    "dark-mode",
+    "oklch",
+    "container-queries",
+    "cascade-layers",
+    "modern-css"
+  ],
+  "skills": "./skills/"
+}
