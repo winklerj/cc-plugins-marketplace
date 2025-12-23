@@ -1,6 +1,6 @@
 {
     "name": "typescript-tools",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "Typescript coding agents and tools",
     "author": {
       "name": "Robb Winkle",
@@ -12,7 +12,6 @@
     "keywords": ["claude code", "typescript", "coding", "agents", "tools"],
     "commands": ["./commands/worktree.md"],
     "agents": [
-        "./agents/auth-gate-agent.md",
         "./agents/dbos-deploy-agent.md",
         "./agents/dbos-workflow-developer.md",
         "./agents/e2b-typescript-developer.md",
@@ -23,7 +22,6 @@
         "./agents/research-agent.md",
         "./agents/subagent-creator.md",
         "./agents/task-parallelization-planner.md",
-        "./agents/tools-lister.md",
         "./agents/verification-agent.md"
     ],
     "mcpServers": "./mcp-servers/mcp-servers.json"

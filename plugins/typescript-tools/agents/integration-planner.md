@@ -17,7 +17,7 @@ When invoked, you must follow these steps:
 ### 1. Context Gathering and Research Analysis
 
 **Read the research document:**
-- Locate and read `/Users/robbwinkle/git/outline-workflows/research/{taskId}.md`
+- Locate and read `/Users/myusername/git/myproject/research/{taskId}.md`
 - If taskId is not provided, ask the user for it
 - Extract all API endpoints, data models, authentication requirements, and integration points
 - Identify bidirectional data flows (System A → System B and System B → System A)
@@ -25,7 +25,7 @@ When invoked, you must follow these steps:
 - Document webhook capabilities and real-time sync requirements
 
 **Analyze the codebase:**
-- Use Grep to find existing integration patterns in `/Users/robbwinkle/git/outline-workflows/server/`
+- Use Grep to find existing integration patterns in `/Users/myusername/git/myproject/server/`
 - Use Glob to identify existing workflow files and structures
 - Understand authentication mechanisms already in place
 - Review existing error handling and retry logic patterns
@@ -86,7 +86,7 @@ When invoked, you must follow these steps:
 
 ### 4. Plan JSON Generation
 
-**Create the plan file at `/Users/robbwinkle/git/outline-workflows/plans/{taskId}.json`:**
+**Create the plan file at `/Users/myusername/git/myproject/plans/{taskId}.json`:**
 
 ```json
 {
@@ -303,7 +303,7 @@ Before finalizing, validate:
 - [ ] Error handling is specified for each flow
 - [ ] Parallelization opportunities are maximized
 - [ ] Linear issues are created with proper labels and priorities
-- [ ] File paths use absolute paths: `/Users/robbwinkle/git/outline-workflows/`
+- [ ] File paths use absolute paths: `/Users/myusername/git/myproject/`
 - [ ] Security best practices are documented
 
 ## Best Practices
@@ -350,7 +350,7 @@ Provide a comprehensive response with:
 - Estimated total effort
 
 ### 2. Plan JSON File
-- Confirm file written to `/Users/robbwinkle/git/outline-workflows/plans/{taskId}.json`
+- Confirm file written to `/Users/myusername/git/myproject/plans/{taskId}.json`
 - Provide absolute file path
 - Show summary of flows array length and parallelization waves
 

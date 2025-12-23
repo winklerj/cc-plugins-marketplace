@@ -11,34 +11,6 @@
                     }
                 ]
             }
-        ],
-        "UserPromptSubmit": [
-            {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/add-guideline-context.sh",
-                        "timeout": 5000
-                    }
-                ]
-            }
-        ],
-        "PostToolUse": [
-            {
-                "matcher": "Write|Edit|MultiEdit",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/node-typescript/quality-check.js"
-                    },
-                    {
-                        "type": "command",
-                        "command": "bun ${CLAUDE_PLUGIN_ROOT}/hooks/ts-lsp-validator/validate-typescript.ts",
-                        "timeout": 15000
-                    }
-                ]
-            }
         ]
     }
 }

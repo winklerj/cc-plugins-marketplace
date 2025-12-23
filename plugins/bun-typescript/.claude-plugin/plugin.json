@@ -1,0 +1,13 @@
+{
+  "name": "bun-typescript",
+  "version": "1.0.0",
+  "description": "Adaptive lint and type-check hook for TypeScript/JavaScript projects. Auto-detects package manager and linting tools.",
+  "author": {
+    "name": "Robb Winkle",
+    "email": "robb@devfit.com",
+    "url": "https://github.com/winklerj"
+  },
+  "repository": "https://github.com/winklerj/cc-plugins-marketplace",
+  "license": "Apache-2.0",
+  "keywords": ["claude code", "typescript", "javascript", "lint", "eslint", "biome", "bun", "hooks"]
+}
