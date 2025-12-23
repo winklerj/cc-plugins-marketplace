@@ -16,10 +16,10 @@ When invoked, you must follow these steps:
 
 1. **Validate Environment**: Ensure the project has the necessary quality tools configured (eslint, TypeScript, test framework)
 
-2. **Create Reports Directory**: Ensure `/Users/robbwinkle/git/outline-workflows/reports/` exists for storing quality reports
+2. **Create Reports Directory**: Ensure `/Users/myusername/git/myproject/reports/` exists for storing quality reports
 
 3. **Run Linting Check**:
-   - Execute `bun eslint --fix --format json --output-file /Users/robbwinkle/git/outline-workflows/reports/lint.json .`
+   - Execute `bun eslint --fix --format json --output-file /Users/myusername/git/myproject/reports/lint.json .`
    - If errors occur, parse the JSON report to identify issues
    - Attempt automatic fixes for common linting problems using Edit tool
    - Document remaining issues that require manual intervention
@@ -31,7 +31,7 @@ When invoked, you must follow these steps:
    - Document complex type errors that need manual review
 
 5. **Run Unit Tests**:
-   - Execute `bun test --reporter json > /Users/robbwinkle/git/outline-workflows/reports/unit.json 2>&1`
+   - Execute `bun test --reporter json > /Users/myusername/git/myproject/reports/unit.json 2>&1`
    - Parse test results to identify failures
    - Analyze failing tests to determine root causes
    - Attempt fixes for simple test failures
@@ -43,7 +43,7 @@ When invoked, you must follow these steps:
    - Ensure there are no placeholders in the code
 
 7. **Generate Quality Report**:
-   - Write comprehensive report to `/Users/robbwinkle/git/outline-workflows/reports/quality-gate-summary.json` with:
+   - Write comprehensive report to `/Users/myusername/git/myproject/reports/quality-gate-summary.json` with:
      - Overall pass/fail status
      - Detailed results for each quality check
      - Auto-fixed issues list
@@ -70,7 +70,7 @@ When invoked, you must follow these steps:
 
 **Security Best Practices:**
 - **Command Injection Prevention**: Always validate file paths before using in shell commands; never concatenate unsanitized user input into bash commands
-- **Path Traversal Prevention**: Restrict all file operations to the project directory `/Users/robbwinkle/git/outline-workflows/`
+- **Path Traversal Prevention**: Restrict all file operations to the project directory `/Users/myusername/git/myproject/`
 - **Report Sanitization**: Sanitize error messages and stack traces before including in reports to prevent information leakage
 - **Minimal Permissions**: Only request necessary file access permissions; use read-only access when possible
 
@@ -165,7 +165,7 @@ When invoked, you must follow these steps:
 - **Tool Version Mismatches**: Warn if tool versions don't match project expectations
 
 ### Absolute Path Requirement
-- **All file paths MUST be absolute**: Use `/Users/robbwinkle/git/outline-workflows/` prefix
+- **All file paths MUST be absolute**: Use `/Users/myusername/git/myproject/` prefix
 - **Never use relative paths**: Agent threads reset cwd between bash calls
 - **Report paths**: Always use absolute paths in reports and Linear issues
 - **File operations**: All Read, Write, Edit operations must use absolute paths
@@ -185,9 +185,9 @@ Your response must include:
    - **Testing**: Status, pass rate, failing tests
 
 3. **File References** (all absolute paths):
-   - `/Users/robbwinkle/git/outline-workflows/reports/lint.json`
-   - `/Users/robbwinkle/git/outline-workflows/reports/unit.json`
-   - `/Users/robbwinkle/git/outline-workflows/reports/quality-gate-summary.json`
+   - `/Users/myusername/git/myproject/reports/lint.json`
+   - `/Users/myusername/git/myproject/reports/unit.json`
+   - `/Users/myusername/git/myproject/reports/quality-gate-summary.json`
 
 4. **Linear Issues Created** (if any):
    - Issue ID and URL for each created issue
@@ -216,14 +216,14 @@ Auto-Fixes Applied:
 ✓ Fixed 2 type errors (added missing imports)
 
 Manual Review Required:
-⚠️ 3 linting issues in /Users/robbwinkle/git/outline-workflows/server/auth.ts
+⚠️ 3 linting issues in /Users/myusername/git/myproject/server/auth.ts
 ⚠️ 5 type errors in workflow definitions
-⚠️ 5 failing tests in /Users/robbwinkle/git/outline-workflows/server/workflows.test.ts
+⚠️ 5 failing tests in /Users/myusername/git/myproject/server/workflows.test.ts
 
 Reports Generated:
-- /Users/robbwinkle/git/outline-workflows/reports/lint.json
-- /Users/robbwinkle/git/outline-workflows/reports/unit.json
-- /Users/robbwinkle/git/outline-workflows/reports/quality-gate-summary.json
+- /Users/myusername/git/myproject/reports/lint.json
+- /Users/myusername/git/myproject/reports/unit.json
+- /Users/myusername/git/myproject/reports/quality-gate-summary.json
 
 Linear Issues Created:
 - ISSUE-123: [Quality Gate] Type Checking Failures in Workflow Definitions
@@ -232,7 +232,7 @@ Linear Issues Created:
   https://linear.app/workspace/issue/ISSUE-124
 
 Recommendations:
-1. Review type definitions in /Users/robbwinkle/git/outline-workflows/server/workflows.ts
+1. Review type definitions in /Users/myusername/git/myproject/server/workflows.ts
 2. Update failing test expectations or fix workflow logic
 3. Consider stricter eslint rules for consistency
 
@@ -244,4 +244,4 @@ BLOCKING PROGRESSION until manual fixes are applied.
 - **Agent threads reset cwd between bash calls** - always use absolute file paths
 - **Return absolute file paths** in all responses, never relative paths
 - **Avoid emojis** in file content and formal reports (OK in user-facing summaries)
-- **Project root**: `/Users/robbwinkle/git/outline-workflows/`
+- **Project root**: `/Users/myusername/git/myproject/`

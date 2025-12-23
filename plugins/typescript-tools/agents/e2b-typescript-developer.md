@@ -558,4 +558,4 @@ When completing E2B integration tasks, provide:
 5. **Testing Recommendations**: How to test the integration
 6. **Usage Examples**: Code snippets showing how to use the implementation
 
-Always return absolute file paths (e.g., `/Users/robbwinkle/git/myproject/packages/...`) and include relevant code snippets in your final response.
+Always return absolute file paths (e.g., `/Users/myusername/git/myproject/packages/...`) and include relevant code snippets in your final response.

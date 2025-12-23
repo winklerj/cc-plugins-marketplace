@@ -28,7 +28,7 @@ When invoked, you must follow these steps:
 
 3. **Create Reports Directory**: Ensure the reports directory exists for storing deployment logs
    ```bash
-   mkdir -p /Users/robbwinkle/git/outline-workflows/reports
+   mkdir -p /Users/myusername/git/myproject/reports
    ```
 
 4. **Execute DBOS Cloud Deployment**: Run the deployment using dbos-cloud CLI
@@ -44,7 +44,7 @@ When invoked, you must follow these steps:
    - Determine final deployment status (success/failure)
 
 6. **Save Deployment Logs**: Store comprehensive deployment information
-   - Write structured logs to `/Users/robbwinkle/git/outline-workflows/reports/deploy.json`
+   - Write structured logs to `/Users/myusername/git/myproject/reports/deploy.json`
    - Include: timestamp, status, deployed URL, environment variables used, errors (if any)
    - Format logs as valid JSON for easy parsing
 
@@ -150,7 +150,7 @@ async function deploy(): Promise<DeploymentResult> {
 // Save deployment logs
 const result = await deploy();
 await writeFile(
-  '/Users/robbwinkle/git/outline-workflows/reports/deploy.json',
+  '/Users/myusername/git/myproject/reports/deploy.json',
   JSON.stringify(result, null, 2)
 );
 
@@ -368,7 +368,7 @@ async function validateDeployment(): Promise<ValidationResult> {
 
   // Check dbos-config.yaml exists
   try {
-    await Bun.file('/Users/robbwinkle/git/outline-workflows/dbos-config.yaml').text();
+    await Bun.file('/Users/myusername/git/myproject/dbos-config.yaml').text();
   } catch {
     errors.push('dbos-config.yaml not found');
   }
@@ -405,7 +405,7 @@ async function validateDeployment(): Promise<ValidationResult> {
 When providing deployment results:
 1. **Clear status** - Success or failure with visual indicators
 2. **Deployed URL** - The live application URL (if successful)
-3. **Log file path** - Absolute path to `/Users/robbwinkle/git/outline-workflows/reports/deploy.json`
+3. **Log file path** - Absolute path to `/Users/myusername/git/myproject/reports/deploy.json`
 4. **Linear integration** - Confirmation of issue update with link
 5. **Error diagnostics** - If deployment failed, provide clear remediation steps
 6. **Warnings** - Any non-critical issues to address
@@ -419,7 +419,7 @@ Deployed URL: https://outline-workflows-xyz.cloud.dbos.dev
 Deployment ID: deploy-abc123
 Duration: 45.2 seconds
 
-Logs saved to: /Users/robbwinkle/git/outline-workflows/reports/deploy.json
+Logs saved to: /Users/myusername/git/myproject/reports/deploy.json
 Linear issue updated: https://linear.app/workspace/issue/PROJ-123
 
 Next steps:
@@ -437,7 +437,7 @@ Type: authentication
 
 Remediation: Check DBOS_CLOUD_TOKEN environment variable is set correctly
 
-Logs saved to: /Users/robbwinkle/git/outline-workflows/reports/deploy.json
+Logs saved to: /Users/myusername/git/myproject/reports/deploy.json
 Linear issue updated: https://linear.app/workspace/issue/PROJ-123
 
 Retry attempts: 3
@@ -458,8 +458,8 @@ Always prioritize:
 
 ## Environment Notes
 
-- **Agent threads reset cwd between bash calls** - Always use absolute paths: `/Users/robbwinkle/git/outline-workflows/`
+- **Agent threads reset cwd between bash calls** - Always use absolute paths: `/Users/myusername/git/myproject/`
 - **Return absolute file paths** in responses, never relative paths
 - **Avoid emojis** in code or logs unless explicitly requested by user (use in markdown responses)
 - **Use Bun for TypeScript execution** - `bun run deploy-script.ts` instead of `ts-node`
-- **Reports directory** - `/Users/robbwinkle/git/outline-workflows/reports/`
+- **Reports directory** - `/Users/myusername/git/myproject/reports/`

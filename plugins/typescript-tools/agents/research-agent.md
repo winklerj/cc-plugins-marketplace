@@ -55,7 +55,7 @@ When invoked, you must follow these steps:
    - Mark sub-issues as "Done" when that dimension is fully researched
    - Keep track of "Known Unknowns" - questions that need clarification
 
-7. **Synthesize Research Document**: Create a comprehensive Markdown file at `/Users/robbwinkle/git/outline-workflows/research/{taskId}.md`:
+7. **Synthesize Research Document**: Create a comprehensive Markdown file at `/Users/myusername/git/myproject/research/{taskId}.md`:
    - Use a descriptive `taskId` (e.g., "stripe-salesforce-integration")
    - Include all sections defined in the Output Format below
    - Organize findings by system, then by research dimension
@@ -423,7 +423,7 @@ System A → Webhook → Processing Queue → Transform → System B API
 
 When research is complete, provide:
 
-1. **Markdown Research Document**: Saved to `/Users/robbwinkle/git/outline-workflows/research/{taskId}.md`
+1. **Markdown Research Document**: Saved to `/Users/myusername/git/myproject/research/{taskId}.md`
 2. **Linear Issue Summary**: Link to parent issue with all sub-issues marked complete
 3. **Quick Summary**: Brief paragraph highlighting the most critical findings and any blockers
 
