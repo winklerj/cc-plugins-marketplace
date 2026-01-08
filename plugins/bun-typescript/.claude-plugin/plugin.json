@@ -1,7 +1,7 @@
 {
   "name": "bun-typescript",
   "version": "1.0.0",
-  "description": "Adaptive lint and type-check hook for TypeScript/JavaScript projects. Auto-detects package manager and linting tools.",
+  "description": "Bun-specific TypeScript development tools including testing, linting, LSP validation, and agents optimized for the Bun runtime",
   "author": {
     "name": "Robb Winkle",
     "email": "robb@devfit.com",
@@ -9,5 +9,11 @@
   },
   "repository": "https://github.com/winklerj/cc-plugins-marketplace",
   "license": "Apache-2.0",
-  "keywords": ["claude code", "typescript", "javascript", "lint", "eslint", "biome", "bun", "hooks"]
+  "keywords": ["claude code", "bun", "typescript", "bun:test", "testing", "linting", "lsp", "runtime"],
+  "agents": [
+    "./agents/react-component-developer.md",
+    "./agents/quality-gate-agent.md",
+    "./agents/verification-agent.md"
+  ],
+  "hooks": "./hooks/hooks.json"
 }

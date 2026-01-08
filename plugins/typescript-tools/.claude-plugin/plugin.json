@@ -17,12 +17,9 @@
         "./agents/e2b-typescript-developer.md",
         "./agents/hook-creator.md",
         "./agents/integration-planner.md",
-        "./agents/quality-gate-agent.md",
-        "./agents/react-component-developer.md",
         "./agents/research-agent.md",
         "./agents/subagent-creator.md",
-        "./agents/task-parallelization-planner.md",
-        "./agents/verification-agent.md"
+        "./agents/task-parallelization-planner.md"
     ],
     "mcpServers": "./mcp-servers/mcp-servers.json"
   }
