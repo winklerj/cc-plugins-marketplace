@@ -9,7 +9,7 @@ This plugin provides Claude Code with deep expertise in DBOS (Durable Execution 
 ## Features
 
 - **Durable Execution**: Workflows survive crashes, restarts, and infrastructure failures
-- **TypeScript & Python**: Full support for both languages
+- **Multi-Language Support**: TypeScript, Python, Go, and Java
 - **Workflow + Step Pattern**: Orchestrate reliable multi-step processes
 - **Background Workflows**: Run long-running tasks asynchronously
 - **Queues**: Control concurrency and rate limiting
@@ -127,6 +127,53 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
+### Java
+
+```java
+import dev.dbos.transact.DBOS;
+import dev.dbos.transact.config.DBOSConfig;
+import dev.dbos.transact.workflow.Workflow;
+import dev.dbos.transact.workflow.Step;
+
+// Define interface
+interface Checkout {
+    String checkoutWorkflow(String userId, double amount);
+}
+
+// Implement with annotations
+class CheckoutImpl implements Checkout {
+
+    @Step(name = "processPayment")
+    public String processPayment(double amount) {
+        return paymentService.charge(amount);
+    }
+
+    @Step(name = "sendEmail")
+    public void sendEmail(String to, String subject) {
+        emailService.send(to, subject);
+    }
+
+    @Workflow(name = "checkoutWorkflow")
+    public String checkoutWorkflow(String userId, double amount) {
+        String paymentId = processPayment(amount);
+        sendEmail(userId, "Payment received");
+        return paymentId;
+    }
+}
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        DBOSConfig config = DBOSConfig.defaults("my-app")
+            .withDatabaseUrl(System.getenv("DBOS_SYSTEM_JDBC_URL"))
+            .withDbUser(System.getenv("PGUSER"))
+            .withDbPassword(System.getenv("PGPASSWORD"));
+        DBOS.configure(config);
+        Checkout proxy = DBOS.registerWorkflows(Checkout.class, new CheckoutImpl());
+        DBOS.launch();
+    }
+}
+```
+
 ## Key Concepts
 
 ### Workflows
@@ -155,6 +202,15 @@ handle = DBOS.start_workflow(long_task, "task-123")
 result = handle.get_result()
 ```
 
+```java
+// Java
+WorkflowHandle<String, Exception> handle = DBOS.startWorkflow(
+    () -> proxy.longTask("task-123"),
+    new StartWorkflowOptions()
+);
+String result = handle.getResult();
+```
+
 ### Scheduled Workflows
 
 ```typescript
@@ -172,6 +228,15 @@ DBOS.registerScheduled(scheduledCleanup, { crontab: "0 0 * * *" });
 @DBOS.workflow()
 def daily_cleanup(scheduled_time, actual_time):
     perform_cleanup()
+```
+
+```java
+// Java - runs daily at midnight
+@Workflow
+@Scheduled(cron = "0 0 0 * * *")
+public void dailyCleanup(Instant scheduled, Instant actual) {
+    performCleanup();
+}
 ```
 
 ### Step Retries
@@ -194,6 +259,18 @@ def unreliable_api_call():
     return requests.get("https://example.com").text
 ```
 
+```java
+// Java
+String data = DBOS.runStep(
+    () -> unreliableApiCall(),
+    new StepOptions("apiCall")
+        .withRetriesAllowed(true)
+        .withMaxAttempts(5)
+        .withIntervalSeconds(2)
+        .withBackoffRate(2.0)
+);
+```
+
 ## Directory Structure
 
 ```
@@ -206,7 +283,9 @@ durable-workflow/
         ├── SKILL.md                     # Main skill definition
         └── references/
             ├── dbos-typescript-api.md   # TypeScript API reference
-            └── dbos-python-api.md       # Python API reference
+            ├── dbos-python-api.md       # Python API reference
+            ├── dbos-go-api.md           # Go API reference
+            └── dbos-java-api.md         # Java API reference
 ```
 
 ## Resources
@@ -214,6 +293,7 @@ durable-workflow/
 - [DBOS Documentation](https://docs.dbos.dev)
 - [DBOS TypeScript SDK](https://www.npmjs.com/package/@dbos-inc/dbos-sdk)
 - [DBOS Python SDK](https://pypi.org/project/dbos/)
+- [DBOS Java SDK](https://mvnrepository.com/artifact/dev.dbos/transact)
 - [Claude Code Documentation](https://docs.claude.com/claude-code)
 
 ## License

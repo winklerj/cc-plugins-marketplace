@@ -1,7 +1,7 @@
 {
   "name": "durable-workflow",
   "version": "1.0.0",
-  "description": "Create durable, resilient workflows using DBOS that automatically resume after failures. Build reliable applications with workflows that survive crashes, restarts, and infrastructure failures.",
+  "description": "Create durable, resilient workflows using DBOS that automatically resume after failures. Build reliable applications with workflows that survive crashes, restarts, and infrastructure failures. Supports TypeScript, Python, Go, and Java.",
   "author": {
     "name": "Claude Code Plugins"
   },
@@ -15,7 +15,11 @@
     "fault-tolerant",
     "background-jobs",
     "orchestration",
-    "typescript"
+    "typescript",
+    "python",
+    "golang",
+    "go",
+    "java"
   ],
   "skills": "./skills/"
 }
