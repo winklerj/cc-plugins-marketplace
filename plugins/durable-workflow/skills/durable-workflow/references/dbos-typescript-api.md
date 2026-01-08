@@ -1,4 +1,12 @@
-# DBOS API Reference
+# DBOS TypeScript API Reference
+
+> **Latest Documentation:** Always check https://docs.dbos.dev/typescript/programming-guide for the most current API. Key reference pages:
+> - Programming Guide: https://docs.dbos.dev/typescript/programming-guide
+> - Workflow Tutorial: https://docs.dbos.dev/typescript/tutorials/workflow-tutorial
+> - Step Tutorial: https://docs.dbos.dev/typescript/tutorials/step-tutorial
+> - Queue Tutorial: https://docs.dbos.dev/typescript/tutorials/queue-tutorial
+> - Configuration: https://docs.dbos.dev/typescript/reference/configuration
+> - DBOS Class Reference: https://docs.dbos.dev/typescript/reference/dbos-class
 
 ## Table of Contents
 

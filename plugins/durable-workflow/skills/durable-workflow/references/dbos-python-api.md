@@ -1,5 +1,15 @@
 # DBOS Python API Reference
 
+> **Latest Documentation:** Always check https://docs.dbos.dev/python/programming-guide for the most current API. Key reference pages:
+> - Programming Guide: https://docs.dbos.dev/python/programming-guide
+> - Workflow Tutorial: https://docs.dbos.dev/python/tutorials/workflow-tutorial
+> - Step Tutorial: https://docs.dbos.dev/python/tutorials/step-tutorial
+> - Queue Tutorial: https://docs.dbos.dev/python/tutorials/queue-tutorial
+> - Transaction Tutorial: https://docs.dbos.dev/python/tutorials/transaction-tutorial
+> - Configuration: https://docs.dbos.dev/python/reference/configuration
+> - DBOS Class Reference: https://docs.dbos.dev/python/reference/dbos-class
+> - CLI Reference: https://docs.dbos.dev/python/reference/cli
+
 ## Table of Contents
 
 1. [Queues](#queues)
