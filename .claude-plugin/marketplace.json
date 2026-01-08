@@ -29,7 +29,7 @@
         "description": "Systematic problem-solving using George Polya's 'How to Solve It' methodology, adapted for software engineering",
         "version": "1.0.0",
         "author": {
-          "name": "Claude Code Plugins"
+          "name": "Robb Winkle"
         }
       },
       {
@@ -38,7 +38,16 @@
         "description": "Modern vanilla CSS techniques for building responsive, maintainable web interfaces without preprocessors or frameworks",
         "version": "1.0.0",
         "author": {
-          "name": "Claude Code Plugins"
+          "name": "Robb Winkle"
+        }
+      },
+      {
+        "name": "durable-workflow",
+        "source": "./plugins/durable-workflow",
+        "description": "Create durable, resilient workflows using DBOS that automatically resume after failures",
+        "version": "1.0.0",
+        "author": {
+          "name": "Robb Winkle"
         }
       }
     ]
