@@ -1,5 +1,5 @@
 ---
-name: durable-workflow
+name: building-durable-workflows
 description: "Create durable, resilient workflows using DBOS that automatically resume after failures. Supports TypeScript, Python, Go, and Java. Use proactively when: (1) Multi-step processes that must complete reliably, (2) Operations calling external APIs or services that might fail, (3) Long-running background tasks, (4) Scheduled/recurring jobs, (5) User asks for durable, resilient, reliable, or fault-tolerant workflows, (6) Processes involving payments, notifications, or other critical operations that cannot be lost."
 ---
 
@@ -7,102 +7,33 @@ description: "Create durable, resilient workflows using DBOS that automatically 
 
 Build reliable applications with DBOS. Workflows provide **durable execution** so programs are **resilient to any failure**. If a workflow is interrupted (executor restarts, crashes, etc.), it automatically resumes from the last completed step.
 
-## Latest Documentation
+## Contents
 
-**IMPORTANT:** Before implementing, check the latest DBOS documentation at https://docs.dbos.dev/ for the most up-to-date API references and best practices. Documentation locations may change, but the guidance below remains valid for reference.
+- [Documentation](#documentation)
+- [Guidelines](#guidelines)
+- [Workflow Decision Tree](#workflow-decision-tree)
+- [Core Pattern](#core-pattern-typescript)
+- [Critical Rules](#critical-rules)
+- [Background Workflows](#background-workflows)
+- [Idempotency](#idempotency)
+- [Durable Sleep](#durable-sleep)
+- [Step Retries](#step-retries)
+- [Scheduled Workflows](#scheduled-workflows)
+- [Queues](#queues)
+- [Testing](#testing)
+- [Error Logging](#error-logging)
 
-### Documentation Site Structure (https://docs.dbos.dev/)
+## Documentation
 
-```
-docs.dbos.dev/
-├── quickstart                    # Getting started guide (Python, TypeScript, Go, Java)
-├── why-dbos                      # Benefits and use cases
-├── architecture                  # Core architecture, scaling, recovery mechanisms
-│
-├── python/                       # Python Documentation
-│   ├── programming-guide         # Complete Python programming reference
-│   ├── integrating-dbos          # Adding DBOS to existing Python apps
-│   ├── tutorials/
-│   │   ├── workflow-tutorial     # Workflow basics and patterns
-│   │   ├── step-tutorial         # Steps and non-deterministic operations
-│   │   ├── queue-tutorial        # Queues and concurrency control
-│   │   ├── transaction-tutorial  # Database transactions
-│   │   ├── scheduled-workflows   # Cron-based scheduling
-│   │   ├── workflow-management   # Cancel, resume, fork workflows
-│   │   ├── workflow-communication # Send/recv messaging, events
-│   │   ├── database-connection   # SQLite vs PostgreSQL configuration
-│   │   ├── kafka-integration     # Kafka consumer integration
-│   │   ├── authentication-authorization # Auth patterns
-│   │   ├── logging-and-tracing   # Observability
-│   │   └── testing               # Unit testing with DBOS
-│   ├── examples/
-│   │   ├── hacker-news-agent     # AI agent example
-│   │   ├── document-detective    # Document ingestion pipeline
-│   │   └── widget-store          # Fault-tolerant checkout
-│   └── reference/
-│       ├── dbos-class            # DBOS class API
-│       ├── configuration         # Configuration options
-│       ├── queues                # Queue API reference
-│       └── cli                   # CLI commands
-│
-├── typescript/                   # TypeScript Documentation
-│   ├── programming-guide         # Complete TypeScript programming reference
-│   ├── integrating-dbos          # Adding DBOS to existing apps
-│   ├── tutorials/
-│   │   ├── workflow-tutorial     # Workflow basics
-│   │   ├── step-tutorial         # Steps and retries
-│   │   ├── queue-tutorial        # Queues, concurrency, rate limiting
-│   │   ├── transaction-tutorial  # Transactions and datasources
-│   │   ├── logging               # Logging and OpenTelemetry tracing
-│   │   └── debugging             # Debugging workflows
-│   ├── examples/
-│   │   ├── hacker-news-agent     # AI agent example
-│   │   ├── checkout-tutorial     # Fault-tolerant checkout
-│   │   └── task-scheduler        # Task scheduling patterns
-│   └── reference/
-│       ├── dbos-class            # DBOS lifecycle and methods
-│       ├── configuration         # Configuration reference
-│       ├── client                # External DBOS client
-│       └── plugins               # Plugin architecture
-│
-├── golang/                       # Go Documentation
-│   ├── programming-guide         # Go programming reference
-│   ├── integrating-dbos          # Adding DBOS to Go apps
-│   ├── tutorials/
-│   │   ├── workflow-tutorial     # Workflows with DBOSContext
-│   │   ├── workflow-communication # Send/recv, events
-│   │   └── queue-tutorial        # Queues and concurrency
-│   ├── examples/
-│   │   └── widget-store          # Fault-tolerant checkout
-│   └── reference/
-│       └── methods               # DBOS methods and variables
-│
-├── java/                         # Java Documentation
-│   ├── programming-guide         # Java programming reference
-│   ├── integrating-dbos          # Spring Boot integration
-│   └── examples/
-│       └── widget-store          # Fault-tolerant checkout
-│
-├── production/                   # Production Deployment
-│   ├── self-hosting/
-│   │   ├── conductor             # DBOS Conductor setup
-│   │   ├── workflow-management   # Observability dashboard
-│   │   ├── workflow-recovery     # Recovery mechanisms
-│   │   └── hosting-with-kubernetes # Kubernetes deployment
-│   └── dbos-cloud/
-│       ├── deploying-to-cloud    # Cloud deployment guide
-│       ├── application-management # Cloud app operations
-│       └── byod-management       # Bring your own database
-│
-├── integrations/
-│   └── supabase                  # Supabase integration
-│
-├── explanations/
-│   ├── system-tables             # Internal database schema
-│   └── how-workflows-work        # Technical deep-dive
-│
-└── faq                           # Troubleshooting and FAQ
-```
+**Official docs:** https://docs.dbos.dev/
+
+For the complete documentation site structure, see [references/docs-structure.md](references/docs-structure.md).
+
+**Language-specific API references:**
+- **TypeScript:** [references/dbos-typescript-api.md](references/dbos-typescript-api.md)
+- **Python:** [references/dbos-python-api.md](references/dbos-python-api.md)
+- **Go:** [references/dbos-go-api.md](references/dbos-go-api.md)
+- **Java:** [references/dbos-java-api.md](references/dbos-java-api.md)
 
 ## Guidelines
 
@@ -126,7 +57,7 @@ User request involves:
     └── Use startWorkflow/start_workflow to run in background
 ```
 
-## Core Pattern - TypeScript
+## Core Pattern (TypeScript)
 
 ```typescript
 import { DBOS } from "@dbos-inc/dbos-sdk";
@@ -169,192 +100,7 @@ async function main() {
 main().catch(console.log);
 ```
 
-## Core Pattern - Python
-
-```python
-import os
-from dbos import DBOS, DBOSConfig
-from fastapi import FastAPI
-import uvicorn
-
-app = FastAPI()
-config: DBOSConfig = {
-    "name": "my-app",
-    "system_database_url": os.environ.get("DBOS_SYSTEM_DATABASE_URL"),
-}
-DBOS(config=config)
-
-# Steps: wrap functions that access external services or are non-deterministic
-@DBOS.step()
-def send_email(to: str, subject: str):
-    email_service.send(to, subject)
-
-@DBOS.step()
-def process_payment(amount: float) -> str:
-    return payment_service.charge(amount)
-
-# Workflow: orchestrates steps with durable execution
-@DBOS.workflow()
-def checkout_workflow(user_id: str, amount: float) -> str:
-    payment_id = process_payment(amount)
-    send_email(user_id, "Payment received")
-    return payment_id
-
-@app.post("/checkout")
-def checkout_endpoint(user_id: str, amount: float):
-    result = checkout_workflow(user_id, amount)
-    return {"payment_id": result}
-
-if __name__ == "__main__":
-    DBOS.launch()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-```
-
-## Core Pattern - Go
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "net/http"
-    "os"
-    "time"
-
-    "github.com/dbos-inc/dbos-transact-golang/dbos"
-    "github.com/gin-gonic/gin"
-)
-
-// Steps: wrap functions that access external services or are non-deterministic
-func sendEmail(ctx context.Context, to string, subject string) (string, error) {
-    // emailService.Send(to, subject)
-    return "sent", nil
-}
-
-func processPayment(ctx context.Context, amount float64) (string, error) {
-    // paymentService.Charge(amount)
-    return "payment-123", nil
-}
-
-// Workflow: orchestrates steps with durable execution
-func checkoutWorkflow(ctx dbos.DBOSContext, input CheckoutInput) (string, error) {
-    paymentID, err := dbos.RunAsStep(ctx, func(c context.Context) (string, error) {
-        return processPayment(c, input.Amount)
-    }, dbos.WithStepName("processPayment"))
-    if err != nil {
-        return "", err
-    }
-
-    _, err = dbos.RunAsStep(ctx, func(c context.Context) (string, error) {
-        return sendEmail(c, input.UserID, "Payment received")
-    }, dbos.WithStepName("sendEmail"))
-    if err != nil {
-        return "", err
-    }
-
-    return paymentID, nil
-}
-
-type CheckoutInput struct {
-    UserID string  `json:"user_id"`
-    Amount float64 `json:"amount"`
-}
-
-func main() {
-    dbosContext, err := dbos.NewDBOSContext(context.Background(), dbos.Config{
-        AppName:     "my-app",
-        DatabaseURL: os.Getenv("DBOS_SYSTEM_DATABASE_URL"),
-    })
-    if err != nil {
-        panic(err)
-    }
-
-    dbos.RegisterWorkflow(dbosContext, checkoutWorkflow)
-
-    err = dbos.Launch(dbosContext)
-    if err != nil {
-        panic(err)
-    }
-    defer dbos.Shutdown(dbosContext, 5*time.Second)
-
-    r := gin.Default()
-
-    r.POST("/checkout", func(c *gin.Context) {
-        var input CheckoutInput
-        if err := c.BindJSON(&input); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-            return
-        }
-
-        handle, _ := dbos.RunWorkflow(dbosContext, checkoutWorkflow, input)
-        result, _ := handle.GetResult()
-        c.JSON(http.StatusOK, gin.H{"payment_id": result})
-    })
-
-    r.Run(":8080")
-}
-```
-
-## Core Pattern - Java
-
-```java
-import dev.dbos.transact.DBOS;
-import dev.dbos.transact.config.DBOSConfig;
-import dev.dbos.transact.workflow.Workflow;
-import dev.dbos.transact.workflow.Step;
-import io.javalin.Javalin;
-
-// Define interface
-interface Checkout {
-    String checkoutWorkflow(String userId, double amount);
-}
-
-// Implement with annotations
-class CheckoutImpl implements Checkout {
-
-    // Steps: wrap functions that access external services or are non-deterministic
-    @Step(name = "processPayment")
-    public String processPayment(double amount) {
-        return paymentService.charge(amount);
-    }
-
-    @Step(name = "sendEmail")
-    public void sendEmail(String to, String subject) {
-        emailService.send(to, subject);
-    }
-
-    // Workflow: orchestrates steps with durable execution
-    @Workflow(name = "checkoutWorkflow")
-    public String checkoutWorkflow(String userId, double amount) {
-        String paymentId = processPayment(amount);
-        sendEmail(userId, "Payment received");
-        return paymentId;
-    }
-}
-
-public class Main {
-    public static void main(String[] args) throws Exception {
-        DBOSConfig config = DBOSConfig.defaults("my-app")
-            .withDatabaseUrl(System.getenv("DBOS_SYSTEM_JDBC_URL"))
-            .withDbUser(System.getenv("PGUSER"))
-            .withDbPassword(System.getenv("PGPASSWORD"));
-        DBOS.configure(config);
-
-        Checkout proxy = DBOS.registerWorkflows(Checkout.class, new CheckoutImpl());
-        DBOS.launch();
-
-        Javalin app = Javalin.create().start(8080);
-        app.post("/checkout", ctx -> {
-            String result = proxy.checkoutWorkflow(
-                ctx.queryParam("userId"),
-                Double.parseDouble(ctx.queryParam("amount"))
-            );
-            ctx.json(java.util.Map.of("paymentId", result));
-        });
-    }
-}
-```
+**Other languages:** See [Python](references/dbos-python-api.md#core-pattern), [Go](references/dbos-go-api.md#core-pattern), [Java](references/dbos-java-api.md#core-pattern)
 
 ## Critical Rules
 
@@ -364,8 +110,8 @@ public class Main {
 - Move non-deterministic actions to steps
 - TypeScript: Do NOT use `Promise.all()` - use `Promise.allSettled()` or queues
 - Python: Do NOT use threads - use `DBOS.start_workflow` and queues
-- Go: Do NOT start goroutines or use `select` in workflows - use them only inside steps. Use `dbos.RunWorkflow` and queues for parallelism
-- Java: Do NOT use threading APIs directly in workflows - use `DBOS.startWorkflow` and queues for parallelism
+- Go: Do NOT start goroutines or use `select` in workflows - use them only inside steps
+- Java: Do NOT use threading APIs directly in workflows - use `DBOS.startWorkflow` and queues
 
 ### Steps
 - Steps wrap functions that access external APIs/services or are non-deterministic
@@ -406,9 +152,6 @@ handle2, err := dbos.RetrieveWorkflow[string](dbosContext, handle.GetWorkflowID(
 
 ### Java
 ```java
-import dev.dbos.transact.StartWorkflowOptions;
-import dev.dbos.transact.workflow.WorkflowHandle;
-
 WorkflowHandle<String, Exception> handle = DBOS.startWorkflow(
     () -> proxy.longTask("task-123"),
     new StartWorkflowOptions()
@@ -467,8 +210,6 @@ dbos.Sleep(ctx, 30*time.Second)  // Survives restarts
 
 ### Java
 ```java
-import java.time.Duration;
-
 DBOS.sleep(Duration.ofSeconds(30));  // Survives restarts
 ```
 
@@ -505,8 +246,6 @@ result, err := dbos.RunAsStep(ctx, unreliableAPICall,
 
 ### Java
 ```java
-import dev.dbos.transact.workflow.StepOptions;
-
 String data = DBOS.runStep(
     () -> unreliableApiCall(),
     new StepOptions("apiCall")
@@ -552,9 +291,6 @@ dbos.RegisterWorkflow(dbosContext, dailyCleanup,
 
 ### Java
 ```java
-import dev.dbos.transact.workflow.Scheduled;
-import java.time.Instant;
-
 @Workflow
 @Scheduled(cron = "0 0 * * * *")  // Every hour
 public void dailyCleanup(Instant scheduled, Instant actual) {
@@ -601,8 +337,6 @@ result, err := handle.GetResult()
 
 ### Java
 ```java
-import dev.dbos.transact.workflow.Queue;
-
 // Create and register queue before DBOS.launch()
 Queue queue = new Queue("task_queue").withWorkerConcurrency(5);
 DBOS.registerQueue(queue);
@@ -614,22 +348,6 @@ WorkflowHandle<String, Exception> handle = DBOS.startWorkflow(
 );
 String result = handle.getResult();
 ```
-
-## Detailed Reference
-
-For advanced features by language:
-
-**TypeScript:** See [references/dbos-typescript-api.md](references/dbos-typescript-api.md)
-- Queues, communication, events, streaming, debouncing, management
-
-**Python:** See [references/dbos-python-api.md](references/dbos-python-api.md)
-- Queues, communication, events, streaming, debouncing, transactions, async workflows
-
-**Go:** See [references/dbos-go-api.md](references/dbos-go-api.md)
-- Queues, communication, events, workflow management, DBOS client
-
-**Java:** See [references/dbos-java-api.md](references/dbos-java-api.md)
-- Queues, communication, events, workflow management, Spring Boot integration
 
 ## Testing
 
@@ -718,22 +436,11 @@ DBOS.logger.error(f"Error: {error}")
 
 ### Go
 ```go
-// Use standard Go logging or configure a custom logger in DBOSContext
 slog.Error("Error occurred", "error", err)
-
-// Or with custom logger in config:
-dbosContext, _ := dbos.NewDBOSContext(context.Background(), dbos.Config{
-    AppName:     "my-app",
-    DatabaseURL: os.Getenv("DBOS_SYSTEM_DATABASE_URL"),
-    Logger:      slog.Default(),  // Custom slog.Logger
-})
 ```
 
 ### Java
 ```java
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 private static final Logger logger = LoggerFactory.getLogger(MyClass.class);
 logger.error("Error: {}", error.getMessage());
 ```
