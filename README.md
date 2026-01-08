@@ -28,6 +28,19 @@ Git-backed issue tracking integration for AI-driven development workflows using 
 - Smart work detection
 - Intelligent skill for autonomous task management
 
+### [durable-workflow](plugins/durable-workflow/README.md)
+
+Create durable, resilient workflows using DBOS that automatically resume after failures. Build reliable applications with workflows that survive crashes, restarts, and infrastructure failures.
+
+**Key Features:**
+- Durable execution that survives crashes and restarts
+- TypeScript and Python support
+- Workflow orchestration with steps for external services
+- Background workflows and queues
+- Scheduled/recurring tasks with crontab
+- Idempotency support for safe retries
+- Automatic step retries with configurable backoff
+
 ## Installation
 
 ### Prerequisites
@@ -223,6 +236,7 @@ Apache-2.0 - See [LICENSE](LICENSE) for details.
 ### Plugin Documentation
 - [typescript-tools README](plugins/typescript-tools/README.md)
 - [beads-task-management README](plugins/beads-task-management/README.md)
+- [durable-workflow README](plugins/durable-workflow/README.md)
 
 ### Claude Code Documentation
 - [Claude Code Documentation](https://docs.claude.com)
