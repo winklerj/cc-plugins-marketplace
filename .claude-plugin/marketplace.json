@@ -15,6 +15,15 @@
         }
       },
       {
+        "name": "bun-typescript",
+        "source": "./plugins/bun-typescript",
+        "description": "Bun-specific TypeScript development tools including testing, linting, LSP validation, and agents optimized for the Bun runtime",
+        "version": "1.0.0",
+        "author": {
+          "name": "Robb Winkle"
+        }
+      },
+      {
         "name": "beads-task-management",
         "source": "./plugins/beads-task-management",
         "description": "Git-backed task management for AI agents using beads bd cli",
