@@ -1,0 +1,22 @@
+{
+  "name": "python-tools",
+  "version": "1.0.0",
+  "description": "Python development tools and patterns including asyncio, concurrent programming, and async/await for building high-performance applications",
+  "author": {
+    "name": "Robb Winkle",
+    "email": "robb@devfit.com",
+    "url": "https://github.com/winklerj"
+  },
+  "repository": "https://github.com/winklerj/cc-plugins-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude code",
+    "python",
+    "asyncio",
+    "async",
+    "concurrent",
+    "patterns",
+    "high-performance"
+  ],
+  "skills": "./skills/"
+}

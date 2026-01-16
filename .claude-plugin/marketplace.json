@@ -58,6 +58,15 @@
         "author": {
           "name": "Robb Winkle"
         }
+      },
+      {
+        "name": "python-tools",
+        "source": "./plugins/python-tools",
+        "description": "Python development tools and patterns including asyncio, concurrent programming, and async/await for building high-performance applications",
+        "version": "1.0.0",
+        "author": {
+          "name": "Robb Winkle"
+        }
       }
     ]
   }
