@@ -1,6 +1,6 @@
 {
   "name": "solve-it",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Systematic problem-solving using George Polya's 'How to Solve It' methodology, adapted for software engineering. Guides you through understanding, planning, executing, and reflecting on difficult problems.",
   "author": {
     "name": "Claude Code Plugins"
@@ -13,7 +13,9 @@
     "polya",
     "how-to-solve-it",
     "stuck",
-    "thinking"
+    "thinking",
+    "prompt patterns",
+    "prompts"
   ],
   "commands": "./commands/",
   "skills": "./skills/"

@@ -1,4 +1,9 @@
-# SKILL.md - Tactical Prompting System
+---
+name: tactical-prompting
+description: Select and apply proven meta-prompting tactics for AI coding tasks. Use when planning complex tasks, stuck on a problem, avoiding LLM failure modes (hallucination, architecture pasta), handling multiple related tasks, or need to generate high-quality prompts quickly.
+---
+
+# Tactical Prompting System
 
 ## Purpose
 Select and apply proven meta-prompting tactics for AI coding tasks. Each tactic is a reusable pattern with known preconditions, postconditions, and failure modes.
