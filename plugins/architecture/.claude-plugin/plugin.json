@@ -1,0 +1,29 @@
+{
+  "name": "architecture",
+  "version": "1.0.0",
+  "description": "Architecture analysis, design, and documentation tools for software projects",
+  "author": {
+    "name": "Robb Winkle",
+    "url": "https://github.com/winklerj"
+  },
+  "repository": "https://github.com/winklerj/cc-plugins-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "architecture",
+    "design",
+    "adr",
+    "patterns",
+    "documentation",
+    "analysis"
+  ],
+  "agents": [
+    "./agents/architecture-analyzer.md",
+    "./agents/architecture-designer.md",
+    "./agents/adr-writer.md"
+  ],
+  "commands": [
+    "./commands/analyze.md",
+    "./commands/adr.md"
+  ],
+  "skills": "./skills/"
+}
