@@ -1,0 +1,20 @@
+{
+  "name": "rw",
+  "version": "1.0.0",
+  "description": "Learning experiments for prevalidating assumptions, comparing approaches, and guarding against regressions.",
+  "author": {
+    "name": "Robb Winkle",
+    "email": "robb@devfit.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "experiments",
+    "learning-tests",
+    "regression",
+    "comparison",
+    "validation",
+    "benchmark",
+    "prevalidation"
+  ],
+  "skills": "./skills/"
+}

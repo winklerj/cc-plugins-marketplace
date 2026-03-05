@@ -1,0 +1,3702 @@
+# Building DSLs for Testing Complex Systems
+
+A practical guide for coding agents creating domain-specific languages for fuzz testing and formal verification of complex systems like databases, distributed systems, and transactional stores.
+
+## Introduction
+
+This guide distills lessons learned from building `@durable-streams/txn-spec`, a TypeScript DSL for testing transactional storage systems based on the CobbleDB/ASPLOS formal specification. The patterns here apply broadly to any complex system where correctness is critical.
+
+**Key insight**: The goal isn't just to write tests—it's to create a _language_ that makes incorrect behavior impossible to express and correct behavior easy to verify.
+
+---
+
+## Part 0: Why—The Bounded Agents Problem
+
+### 0.1 Everyone Has Limited Context
+
+Humans hold roughly 4-7 concepts in working memory. AI agents have literal context limits. Neither can hold a full system in their head.
+
+We live in a world of **multiple bounded agents**—human and AI—trying to co-evolve a shared system. The human can't see everything. The agent can't see everything. They can't even see the same things.
+
+Without explicit contracts, small divergences compound. Tests pass but coherence collapses.
+
+### 0.2 Configurancy: Shared Intelligibility
+
+**Configurancy** (term from [Venkatesh Rao](https://contraptions.venkateshrao.com/p/configurancy)) is the shared intelligibility layer that allows agents with limited context to coherently co-evolve a system.
+
+A configurancy layer establishes shared facts:
+
+- **Affordances** (what you can do): _streams can be paused and resumed_
+- **Invariants** (what you can rely on): _messages are delivered exactly once_
+- **Constraints** (what you can't do): _max 100 concurrent streams per client_
+
+High configurancy = any agent (human or AI) can act coherently.
+Low configurancy = agents make locally correct changes that violate unstated assumptions.
+
+### 0.3 Why DSLs Now?
+
+We've always known specifications were valuable. But specs cost too much to write and more to maintain. So we invested sparingly, specs drifted, and eventually we just read the code.
+
+**What changed is the economics.** Agents can propagate spec changes through implementations at machine speed. Conformance suites verify correctness. The spec becomes the source of truth again, because maintenance is now cheap.
+
+A single spec change can ripple through dozens of files across multiple languages in minutes—verified correct by conformance tests. This makes formal DSLs tractable in ways they never were before.
+
+### 0.4 The 30-Day Test
+
+A useful heuristic: **Could any agent—human or AI—picking up this system after 30 days accurately predict its behavior from the configurancy model?**
+
+If not, either your system is too complex or your model needs work.
+
+---
+
+## Part 1: Start From Formal Foundations
+
+### 1.1 Find or Create a Specification
+
+Before writing any code, establish what "correct" means. Sources include:
+
+- **Academic papers** (like CobbleDB's "Formalising Transactional Storage Systems")
+- **Protocol specifications** (like Raft, Paxos, TLA+ specs)
+- **Industry standards** (SQL isolation levels, HTTP semantics)
+- **Existing implementations** (use as reference, but verify assumptions)
+
+```
+Paper/Spec → Mathematical Model → DSL Types → Implementation → Tests
+```
+
+### 1.2 Map Mathematical Concepts Directly to Code
+
+The CobbleDB paper defines effects algebraically:
+
+```
+δ_assign_v : constant function yielding v
+δ_incr_n   : adds n to current value
+δ_delete   : sets value to ⊥ (bottom)
+```
+
+This maps directly to TypeScript:
+
+```typescript
+// Types mirror the math exactly
+type AssignEffect = { type: "assign"; value: Value }
+type IncrementEffect = { type: "increment"; delta: number }
+type DeleteEffect = { type: "delete" }
+type Effect = AssignEffect | IncrementEffect | DeleteEffect
+
+// Constructors match paper notation
+const assign = (v: Value): AssignEffect => ({ type: "assign", value: v })
+const increment = (n: number): IncrementEffect => ({
+  type: "increment",
+  delta: n,
+})
+const del = (): DeleteEffect => ({ type: "delete" })
+```
+
+**Why this matters**: When your code mirrors the specification, bugs become specification violations that are easier to identify and fix.
+
+### 1.3 Encode Invariants in the Type System
+
+Use TypeScript's type system to make illegal states unrepresentable:
+
+```typescript
+// Bad: allows invalid states
+interface Transaction {
+  status: string // Could be anything!
+  commitTs?: number
+}
+
+// Good: encodes state machine in types
+type Transaction =
+  | { status: "pending"; snapshotTs: Timestamp }
+  | { status: "committed"; snapshotTs: Timestamp; commitTs: Timestamp }
+  | { status: "aborted"; snapshotTs: Timestamp }
+
+// Now TypeScript enforces: committed transactions MUST have commitTs
+```
+
+**Important caveat**: TypeScript's type system is not sound in the PL-theory sense—you can punch through with `any`. Separate three layers of enforcement:
+
+| Layer                  | Purpose                   | Tradeoff                            |
+| ---------------------- | ------------------------- | ----------------------------------- |
+| **Static guardrails**  | Ergonomics, fast feedback | Can be bypassed; best-effort only   |
+| **Runtime validation** | Actual enforcement        | Has cost; can't catch everything    |
+| **Semantic checking**  | The real oracle           | May be slow; run on test/fuzz cases |
+
+```typescript
+// Layer 1: Static - TypeScript catches at compile time
+function commit(txn: PendingTransaction): CommittedTransaction // Type error if wrong status
+
+// Layer 2: Runtime - Explicit validation
+function commit(txn: Transaction): CommittedTransaction {
+  if (txn.status !== "pending") {
+    throw new Error(`Cannot commit ${txn.status} transaction`)
+  }
+  // ...
+}
+
+// Layer 3: Semantic - Check invariants over entire history
+function checkInvariant(history: History): boolean {
+  // "No transaction commits twice"
+  const commitCounts = new Map<TxnId, number>()
+  for (const op of history) {
+    if (op.type === "commit") {
+      const count = (commitCounts.get(op.txnId) ?? 0) + 1
+      if (count > 1) return false
+      commitCounts.set(op.txnId, count)
+    }
+  }
+  return true
+}
+```
+
+This separation is an important formal-methods lesson: proofs/specs always have a _trusted computing base_; you want it small and explicit.
+
+### 1.4 Find External Hardness (Oracles)
+
+The best configurancy enforcement relies on **verifiable ground truth that exists outside your system**.
+
+Don't write the spec if someone else already has:
+
+| Domain         | External Oracle                             |
+| -------------- | ------------------------------------------- |
+| SQL semantics  | PostgreSQL (run same query, compare)        |
+| HTML parsing   | html5lib-tests (9,200 browser-vendor tests) |
+| JSON parsing   | JSONTestSuite                               |
+| HTTP semantics | RFC 7230-7235 + curl as reference           |
+| Cryptography   | NIST test vectors                           |
+| Time zones     | IANA tz database                            |
+
+When you can verify against external hardness:
+
+- Agents iterate rapidly (generate attempts, check against oracle)
+- The spec never drifts—you compare against behavior, not documentation
+- You inherit decades of edge-case discovery
+
+```typescript
+// Oracle testing: compare against authoritative source
+async function testSQLExpression(expr: string) {
+  const ourResult = await ourEngine.evaluate(expr)
+  const pgResult = await postgres.query(`SELECT ${expr}`)
+  expect(ourResult).toEqual(pgResult.rows[0])
+}
+
+// Generate hundreds of test cases, compare against oracle
+for (const expr of generateRandomExpressions(1000)) {
+  it(`matches Postgres: ${expr}`, () => testSQLExpression(expr))
+}
+```
+
+If no external oracle exists, your conformance suite becomes the oracle. Invest heavily in its quality—future agents will trust it absolutely.
+
+**Important tradeoff**: When you use an external oracle, it becomes part of your spec. If the oracle has quirks, you inherit them. You've chosen a _reference model_, and you must document the gaps where the oracle is underspecified, nondeterministic, or "bug-compatible."
+
+```typescript
+// Document oracle limitations explicitly
+const ORACLE_GAPS = {
+  postgres: {
+    "NULL comparison":
+      "Postgres NULL semantics differ from SQL standard in some edge cases",
+    "float precision": "Postgres may round differently than IEEE 754 strict",
+  },
+}
+
+// Test against oracle, but track known divergences
+async function testAgainstOracle(expr: string) {
+  const ourResult = await ourEngine.evaluate(expr)
+  const pgResult = await postgres.query(`SELECT ${expr}`)
+
+  if (isKnownDivergence(expr, ORACLE_GAPS.postgres)) {
+    // Log but don't fail - this is documented behavior difference
+    console.log(`Known divergence for: ${expr}`)
+    return
+  }
+
+  expect(ourResult).toEqual(pgResult.rows[0])
+}
+```
+
+---
+
+## Part 2: Design the DSL
+
+### 2.1 Fluent Builder Pattern for Readable Scenarios
+
+Tests should read like specifications. Compare:
+
+```typescript
+// Bad: imperative, hard to follow
+const store = createStore()
+const txn1 = coordinator.begin()
+coordinator.update(txn1, "x", assign(10))
+coordinator.commit(txn1, 5)
+const txn2 = coordinator.begin(6)
+const result = coordinator.read(txn2, "x")
+expect(result).toBe(10)
+
+// Good: declarative, self-documenting
+scenario("read-after-write")
+  .description("A transaction reads its own writes")
+  .transaction("t1", { st: 0 })
+  .update("x", assign(10))
+  .commit({ ct: 5 })
+  .transaction("t2", { st: 6 })
+  .readExpect("x", 10)
+  .commit({ ct: 10 })
+  .build()
+```
+
+### 2.2 Builder Implementation Pattern
+
+```typescript
+class ScenarioBuilder {
+  private steps: Step[] = []
+  private currentTxn: TxnId | null = null
+
+  transaction(id: TxnId, opts: { st: Timestamp }): this {
+    this.steps.push({ type: "begin", txnId: id, snapshotTs: opts.st })
+    this.currentTxn = id
+    return this // Enable chaining
+  }
+
+  update(key: Key, effect: Effect): this {
+    if (!this.currentTxn) throw new Error("No active transaction")
+    this.steps.push({ type: "update", txnId: this.currentTxn, key, effect })
+    return this
+  }
+
+  readExpect(key: Key, expected: Value): this {
+    this.steps.push({
+      type: "read",
+      txnId: this.currentTxn!,
+      key,
+      expected,
+    })
+    return this
+  }
+
+  commit(opts: { ct: Timestamp }): this {
+    this.steps.push({
+      type: "commit",
+      txnId: this.currentTxn!,
+      commitTs: opts.ct,
+    })
+    this.currentTxn = null
+    return this
+  }
+
+  abort(): this {
+    this.steps.push({
+      type: "abort",
+      txnId: this.currentTxn!,
+    })
+    this.currentTxn = null
+    return this
+  }
+
+  build(): ScenarioDefinition {
+    return { steps: this.steps /* metadata */ }
+  }
+}
+
+// Factory function for clean API
+const scenario = (name: string) => new ScenarioBuilder(name)
+```
+
+### 2.3 Provide Standard Scenarios
+
+Create a library of canonical test cases:
+
+```typescript
+export const standardScenarios = [
+  // Basic operations
+  scenario("simple-read-write")...,
+  scenario("read-own-writes")...,
+
+  // Isolation boundaries
+  scenario("snapshot-isolation")...,
+  scenario("write-skew-anomaly")...,
+
+  // Concurrent operations
+  scenario("n-way-concurrent-increments")...,
+  scenario("last-writer-wins")...,
+
+  // Edge cases
+  scenario("empty-transaction")...,
+  scenario("delete-then-assign")...,
+]
+```
+
+**Tag scenarios** for selective execution:
+
+```typescript
+scenario("concurrent-counters").tags("concurrent", "crdt", "increment")
+// ...
+```
+
+### 2.4 Two-Tier Language Design
+
+There are two distinct DSL jobs, and conflating them causes problems:
+
+1. **Valid-behavior DSL** (high configurancy): Makes it hard to write nonsense, guides authors to meaningful scenarios. This is what typed builders give you.
+
+2. **Adversarial DSL** (low-level): Deliberately constructs "illegal" sequences to test defensive behavior, error handling, and robustness.
+
+Formal verification history is littered with disasters where the spec excluded behaviors that later happened in reality—often because the spec quietly assumed something about the environment.
+
+**Design pattern**: A "typed builder DSL" for well-formed histories, plus a "raw event DSL" (or mutation layer) for malformed, reordered, duplicated, replayed, or partitioned scenarios.
+
+```typescript
+// Tier 1: Typed builder - makes illegal states hard to express
+const validScenario = scenario("normal-operation")
+  .transaction("t1", { st: 0 })
+  .update("x", assign(10))
+  .commit({ ct: 5 }) // Builder enforces: can only commit active transactions
+
+// Tier 2: Raw events - for adversarial testing
+const adversarialScenario = rawEvents([
+  { type: "begin", txnId: "t1", snapshotTs: 0 },
+  { type: "commit", txnId: "t1", commitTs: 5 }, // Commit without any operations
+  { type: "commit", txnId: "t1", commitTs: 6 }, // Double commit!
+  { type: "update", txnId: "t1", key: "x", effect: assign(10) }, // Update after commit!
+])
+
+// Tier 2: Mutation layer - corrupt valid scenarios
+const corruptedScenario = validScenario
+  .mutate()
+  .duplicateEvent(2) // Replay an event
+  .reorderEvents(1, 3) // Swap event order
+  .dropEvent(4) // Lose an event
+  .build()
+```
+
+The typed builder is for authors writing test cases. The raw layer is for:
+
+- Testing error handling and recovery
+- Simulating Byzantine failures
+- Fuzzing protocol parsers
+- Verifying defensive checks work
+
+Your nemesis/fault injection (Part 5.3) is one example of this pattern. Make it explicit.
+
+---
+
+## Part 3: Algebraic Property Testing
+
+### 3.1 Verify Operator Properties
+
+Mathematical operators have algebraic properties. Test them exhaustively:
+
+```typescript
+describe("Merge Properties", () => {
+  const effects = [BOTTOM, assign(0), assign(1), increment(5), del()]
+
+  // Commutativity: merge(a, b) = merge(b, a)
+  for (const a of effects) {
+    for (const b of effects) {
+      it(`merge(${a}, ${b}) = merge(${b}, ${a})`, () => {
+        expect(effectsEqual(merge(a, b), merge(b, a))).toBe(true)
+      })
+    }
+  }
+
+  // Associativity: merge(merge(a, b), c) = merge(a, merge(b, c))
+  for (const a of effects) {
+    for (const b of effects) {
+      for (const c of effects) {
+        it(`associativity for ${a}, ${b}, ${c}`, () => {
+          const left = merge(merge(a, b), c)
+          const right = merge(a, merge(b, c))
+          expect(effectsEqual(left, right)).toBe(true)
+        })
+      }
+    }
+  }
+
+  // Idempotence: merge(a, a) = a (for applicable types)
+  // Identity: merge(BOTTOM, a) = a
+})
+```
+
+### 3.2 Understand When Properties Don't Hold
+
+Not all operations satisfy all properties. Document exceptions:
+
+```typescript
+describe("Idempotence", () => {
+  /**
+   * Idempotence applies at SET level (version deduplication),
+   * not VALUE level for all types.
+   *
+   * - Assigns, deletes: idempotent (merge(a, a) = a)
+   * - Increments: NOT idempotent (merge(inc(5), inc(5)) = inc(10))
+   *   This is INTENTIONAL for counter CRDT semantics.
+   */
+
+  it("increments sum, not deduplicate", () => {
+    expect(merge(increment(5), increment(5))).toEqual(increment(10))
+  })
+})
+```
+
+---
+
+## Part 4: Fuzz Testing Framework
+
+### 4.1 Seeded Random Generation
+
+Reproducibility is critical. Use seeded PRNGs:
+
+```typescript
+class SeededRandom {
+  private state: number
+
+  constructor(seed: number) {
+    this.state = seed
+  }
+
+  // Linear Congruential Generator
+  next(): number {
+    this.state = (this.state * 1103515245 + 12345) & 0x7fffffff
+    return this.state / 0x7fffffff
+  }
+
+  int(min: number, max: number): number {
+    return Math.floor(this.next() * (max - min + 1)) + min
+  }
+
+  pick<T>(arr: T[]): T {
+    return arr[this.int(0, arr.length - 1)]
+  }
+
+  chance(probability: number): boolean {
+    return this.next() < probability
+  }
+}
+
+// Failing test output: "Failed with seed 12345"
+// Reproduce: new SeededRandom(12345)
+```
+
+### 4.2 Random Scenario Generation
+
+Generate scenarios that explore the state space:
+
+```typescript
+interface FuzzConfig {
+  seed: number
+  numTransactions: { min: number; max: number }
+  numKeys: { min: number; max: number }
+  operationsPerTxn: { min: number; max: number }
+  effectTypes: Array<"assign" | "increment" | "delete">
+  abortProbability: number
+}
+
+function generateRandomScenario(config: FuzzConfig): ScenarioDefinition {
+  const rng = new SeededRandom(config.seed)
+  const keys = Array.from(
+    { length: rng.int(config.numKeys.min, config.numKeys.max) },
+    (_, i) => `key${i}`
+  )
+
+  const builder = scenario(`fuzz-${config.seed}`)
+  let timestamp = 0
+
+  const numTxns = rng.int(
+    config.numTransactions.min,
+    config.numTransactions.max
+  )
+
+  for (let t = 0; t < numTxns; t++) {
+    const txnId = `t${t}`
+    const snapshotTs = timestamp++
+
+    builder.transaction(txnId, { st: snapshotTs })
+
+    const numOps = rng.int(
+      config.operationsPerTxn.min,
+      config.operationsPerTxn.max
+    )
+    for (let o = 0; o < numOps; o++) {
+      const key = rng.pick(keys)
+      const effectType = rng.pick(config.effectTypes)
+
+      switch (effectType) {
+        case "assign":
+          builder.update(key, assign(rng.int(0, 100)))
+          break
+        case "increment":
+          builder.update(key, increment(rng.int(1, 10)))
+          break
+        case "delete":
+          builder.update(key, del())
+          break
+      }
+    }
+
+    if (rng.chance(config.abortProbability)) {
+      builder.abort()
+    } else {
+      builder.commit({ ct: timestamp++ })
+    }
+  }
+
+  return builder.build()
+}
+```
+
+### 4.3 Store Equivalence Testing
+
+The most powerful fuzz technique: run the same scenario against multiple implementations and verify they agree:
+
+```typescript
+async function runFuzzTest(
+  scenario: ScenarioDefinition,
+  stores: Array<{ name: string; create: () => Promise<Store> }>
+): Promise<FuzzResult> {
+  const results = new Map<string, Map<Key, Value>>()
+
+  for (const { name, create } of stores) {
+    const store = await create()
+    try {
+      await executeScenario(scenario, store)
+      results.set(name, await store.snapshot())
+    } finally {
+      await store.close()
+    }
+  }
+
+  // Check all stores agree
+  const storeNames = [...results.keys()]
+  const reference = results.get(storeNames[0])!
+
+  for (let i = 1; i < storeNames.length; i++) {
+    const other = results.get(storeNames[i])!
+    if (!mapsEqual(reference, other)) {
+      return {
+        success: false,
+        inconsistency: {
+          stores: [storeNames[0], storeNames[i]],
+          reference: mapToObject(reference),
+          actual: mapToObject(other),
+        },
+      }
+    }
+  }
+
+  return { success: true }
+}
+```
+
+### 4.4 Shrinking Failing Cases
+
+When a fuzz test fails, minimize the scenario. This is essentially **delta debugging**—systematically minimize failure-inducing inputs while preserving the failure.
+
+```typescript
+async function shrinkFailingCase(
+  scenario: ScenarioDefinition,
+  stores: StoreFactory[],
+  isFailure: (scenario: ScenarioDefinition) => Promise<boolean>
+): Promise<ScenarioDefinition> {
+  let current = scenario
+
+  // Try removing transactions one at a time
+  for (let i = current.transactions.length - 1; i >= 0; i--) {
+    const smaller = removeTransaction(current, i)
+    if (await isFailure(smaller)) {
+      current = smaller // Still fails, keep the reduction
+    }
+  }
+
+  // Try removing operations within transactions
+  for (const txn of current.transactions) {
+    for (let i = txn.operations.length - 1; i >= 0; i--) {
+      const smaller = removeOperation(current, txn.id, i)
+      if (await isFailure(smaller)) {
+        current = smaller
+      }
+    }
+  }
+
+  return current // Minimal failing case
+}
+```
+
+**Critical constraint**: Shrinking must respect _semantic well-formedness_. Don't delete the begin of a transaction but keep its commit—that's a malformed history. QuickCheck-style shrinkers bake these constraints into their shrink functions.
+
+```typescript
+function shrinkTransaction(txn: Transaction): Transaction[] {
+  const candidates: Transaction[] = []
+
+  // Can shrink operations, but must keep begin and commit/abort
+  for (let i = 0; i < txn.operations.length; i++) {
+    candidates.push({
+      ...txn,
+      operations: [
+        ...txn.operations.slice(0, i),
+        ...txn.operations.slice(i + 1),
+      ],
+    })
+  }
+
+  // Can shrink values, but must maintain types
+  for (let i = 0; i < txn.operations.length; i++) {
+    const op = txn.operations[i]
+    if (op.type === "assign" && typeof op.value === "number" && op.value > 0) {
+      candidates.push({
+        ...txn,
+        operations: txn.operations.map((o, j) =>
+          j === i ? { ...o, value: Math.floor(op.value / 2) } : o
+        ),
+      })
+    }
+  }
+
+  return candidates
+}
+```
+
+**References**:
+
+- [Delta Debugging: Simplifying and Isolating Failure-Inducing Input](https://www.cs.purdue.edu/homes/xyzhang/fall07/Papers/delta-debugging.pdf)
+- [QuickCheck: A Lightweight Tool for Random Testing](https://www.cs.tufts.edu/~nr/cs257/archive/john-hughes/quick.pdf)
+
+---
+
+## Part 5: Jepsen-Inspired Techniques
+
+[Jepsen](https://jepsen.io) has pioneered distributed systems testing. Key techniques:
+
+### 5.1 History-Based Verification
+
+Record a history of operations and verify it satisfies consistency models:
+
+```typescript
+interface Operation {
+  type: "invoke" | "ok" | "fail"
+  process: ProcessId
+  action: "read" | "write" | "cas"
+  key: Key
+  value?: Value
+  timestamp: number
+}
+
+type History = Operation[]
+
+// Check if history is linearizable
+function checkLinearizability(history: History): boolean {
+  // For each possible linearization order...
+  // (This is NP-complete in general, use heuristics)
+  return tryLinearize(history, [])
+}
+
+// Check if history satisfies snapshot isolation
+function checkSnapshotIsolation(history: History): boolean {
+  // No write-write conflicts in concurrent transactions
+  // Reads see a consistent snapshot
+  // ...
+}
+```
+
+### 5.2 Consistency Model Hierarchy
+
+Test against multiple consistency models:
+
+```
+Linearizability (strongest)
+    ↓
+Sequential Consistency
+    ↓
+Snapshot Isolation
+    ↓
+Read Committed
+    ↓
+Read Uncommitted
+    ↓
+Eventual Consistency (weakest)
+```
+
+**Important nuance**: This ladder is pedagogically useful but can mislead. The real picture is a _partial order_ with incomparable points:
+
+- "Eventual consistency" isn't one model—there's causal, PRAM, session guarantees, etc.
+- Transactional isolation levels and distributed consistency models form different axes.
+- Some pairs are incomparable: Snapshot Isolation vs Strict Serializability have different tradeoffs.
+
+Ground your hierarchy in one formalism (e.g., [Adya-style dependency graphs](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-786.pdf)) and admit the ladder is a projection.
+
+**Reference**: [A Critique of ANSI SQL Isolation Levels](https://arxiv.org/abs/cs/0701157)
+
+```typescript
+const consistencyCheckers = {
+  linearizable: checkLinearizability,
+  sequential: checkSequentialConsistency,
+  snapshotIsolation: checkSnapshotIsolation,
+  readCommitted: checkReadCommitted,
+}
+
+function verifyHistory(
+  history: History,
+  model: keyof typeof consistencyCheckers
+) {
+  const checker = consistencyCheckers[model]
+  return checker(history)
+}
+```
+
+### 5.3 Fault Injection (Nemesis)
+
+Jepsen's "nemesis" injects failures. Design your DSL to support this:
+
+```typescript
+interface Nemesis {
+  // Network partitions
+  partition(nodes: Node[][]): Promise<void>
+  heal(): Promise<void>
+
+  // Process failures
+  kill(node: Node): Promise<void>
+  restart(node: Node): Promise<void>
+
+  // Clock skew
+  skewClock(node: Node, delta: Duration): Promise<void>
+
+  // Disk
+  corruptFile(node: Node, path: string): Promise<void>
+}
+
+scenario("partition-during-write")
+  .transaction("t1")
+  .update("x", assign(1))
+  .commit()
+  .nemesis((n) => n.partition([["n1", "n2"], ["n3"]]))
+  .transaction("t2")
+  .update("x", assign(2))
+  .commit()
+  .nemesis((n) => n.heal())
+  .transaction("t3")
+  .readExpect("x" /* depends on consistency model */)
+```
+
+### 5.4 Elle: Dependency Graph Analysis
+
+Jepsen's [Elle](https://github.com/jepsen-io/elle) checks consistency via dependency graphs:
+
+```typescript
+interface DependencyGraph {
+  nodes: Transaction[]
+  edges: Array<{
+    from: Transaction
+    to: Transaction
+    type: "ww" | "wr" | "rw" // write-write, write-read, read-write
+  }>
+}
+
+function buildDependencyGraph(history: History): DependencyGraph {
+  // WW: t1 writes x, t2 writes x, t2 sees t1's write
+  // WR: t1 writes x, t2 reads x (and sees t1's value)
+  // RW: t1 reads x, t2 writes x (anti-dependency)
+  // ...
+}
+
+function checkSerializable(graph: DependencyGraph): boolean {
+  // No cycles in the dependency graph
+  return !hasCycle(graph)
+}
+```
+
+### 5.5 Soundness vs Completeness
+
+Formal methods people are allergic to unstated tradeoffs. Every checker makes a choice:
+
+| Property     | Definition                                                 | Tradeoff                                   |
+| ------------ | ---------------------------------------------------------- | ------------------------------------------ |
+| **Sound**    | Never false positives—if it says "violation," there is one | May miss real bugs (false negatives)       |
+| **Complete** | Never false negatives—finds all real bugs in scope         | May flag spurious issues (false positives) |
+
+Most practical checkers are **sound but incomplete**—they guarantee no false alarms but may miss bugs. This is usually the right choice for CI/CD, where false positives erode trust.
+
+**Label your checkers explicitly**:
+
+```typescript
+interface Checker<T> {
+  name: string
+  /**
+   * Soundness guarantee:
+   * - "sound": no false positives (if returns violation, it's real)
+   * - "unsound": may have false positives
+   */
+  soundness: "sound" | "unsound"
+  /**
+   * Completeness guarantee:
+   * - "complete": finds all violations in scope
+   * - "incomplete": may miss some violations
+   */
+  completeness: "complete" | "incomplete"
+  /** What scope/bounds does this checker operate within? */
+  scope: string
+  check(input: T): CheckResult
+}
+
+const serializabilityChecker: Checker<History> = {
+  name: "Cycle-based serializability",
+  soundness: "sound", // No false positives
+  completeness: "incomplete", // May miss predicate-based anomalies
+  scope: "Single-key read/write operations",
+  check: checkSerializable,
+}
+```
+
+Elle's claims are carefully scoped—e.g., predicate anomalies are excluded in some contexts. Your guide should teach readers to label their checkers the same way.
+
+**Linearizability is NP-complete**: Checking a history for linearizability is computationally hard in general. That matters because it shapes DSL design: you want histories that are _informative_ (expose dependency structure) but also _checkable_. Practical checkers use heuristics, pruning, and bounded search.
+
+**Reference**: [Testing for Linearizability (Lowe)](https://www.cs.ox.ac.uk/people/gavin.lowe/LinearizabiltyTesting/paper.pdf)
+
+---
+
+## Part 6: Practical Patterns
+
+### 6.1 Multi-Implementation Testing
+
+The most valuable test: same interface, multiple implementations:
+
+```typescript
+const implementations = [
+  { name: "in-memory", create: createMapStore },
+  { name: "wal-based", create: createStreamStore },
+  { name: "rocksdb", create: createRocksDbStore },
+  { name: "distributed", create: createDistributedStore },
+]
+
+describe("All implementations agree", () => {
+  for (const scenario of standardScenarios) {
+    it(scenario.name, async () => {
+      const results = await Promise.all(
+        implementations.map(async (impl) => ({
+          name: impl.name,
+          result: await runScenario(scenario, await impl.create()),
+        }))
+      )
+
+      // All should match
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i].result).toEqual(results[0].result)
+      }
+    })
+  }
+})
+```
+
+### 6.2 Conformance Test Suites
+
+Separate specification tests from implementation tests:
+
+```
+test-cases/
+  ├── core/
+  │   ├── read-write.yaml
+  │   ├── isolation.yaml
+  │   └── atomicity.yaml
+  ├── edge-cases/
+  │   ├── empty-transactions.yaml
+  │   └── clock-skew.yaml
+  └── consistency-models/
+      ├── snapshot-isolation.yaml
+      └── serializable.yaml
+```
+
+### 6.3 YAML Test Definitions
+
+For cross-language conformance, use data-driven tests:
+
+```yaml
+# snapshot-isolation.yaml
+name: snapshot-isolation-basic
+description: Transactions see consistent snapshots
+tags: [isolation, snapshot]
+
+setup:
+  - { txn: init, ops: [{ write: { key: x, value: 0 } }], commit: 1 }
+
+scenario:
+  - { txn: t1, snapshot: 2, ops: [{ read: x, expect: 0 }] }
+  - { txn: t2, snapshot: 2, ops: [{ write: { key: x, value: 1 } }], commit: 3 }
+  - { txn: t1, ops: [{ read: x, expect: 0 }], commit: 4 } # Still sees 0!
+
+expected:
+  x: 1 # Final value after all commits
+```
+
+### 6.4 Differential Testing Against Reference
+
+If you have a reference implementation (even a slow one), use it:
+
+```typescript
+class ReferenceStore {
+  // Slow but obviously correct implementation
+  // Every operation validates invariants
+  // No optimizations, maximum clarity
+}
+
+it("optimized matches reference", async () => {
+  const scenario = generateRandomScenario({ seed: 42 })
+
+  const refResult = await runScenario(scenario, new ReferenceStore())
+  const optResult = await runScenario(scenario, new OptimizedStore())
+
+  expect(optResult).toEqual(refResult)
+})
+```
+
+### 6.5 Bidirectional Enforcement
+
+The configurancy model only matters if it's enforced. Review in both directions:
+
+**Doc → Code**: If the spec claims an invariant, is it actually enforced?
+
+```
+For each invariant in the spec:
+  [ ] Is it enforced by types?
+  [ ] Is it covered by conformance tests?
+  [ ] Are violations caught at runtime?
+  [ ] If not enforced, why? (document the gap)
+```
+
+**Code → Doc**: If a test encodes an invariant, is it documented?
+
+```
+For each test/type/constraint in the PR:
+  [ ] Does it encode an invariant?
+  [ ] Is that invariant in the spec?
+  [ ] If not, should it be added?
+```
+
+A spec that drifts from enforcement is worse than no spec—it actively misleads agents.
+
+### 6.6 Configurancy Delta
+
+Track **how shared understanding changed**, not just what lines changed:
+
+```
+Affordances:
+  + [NEW] Users can now pause streams
+  ~ [MODIFIED] Delete requires confirmation
+
+Invariants:
+  ↑ [STRENGTHENED] Delivery: at-least-once → exactly-once
+
+Constraints:
+  + [NEW] Max 100 concurrent streams per client
+```
+
+This is what agents need to know. Not the diff—the delta in what they should expect.
+
+**Invisible changes are good**: Bug fixes and refactors should be invisible at the configurancy layer. If your "bug fix" requires updating the shared model, it's a behavior change.
+
+---
+
+## Part 7: LLM-Guided Testing
+
+### 7.1 Scenario Generation via LLM
+
+LLMs can generate meaningful edge cases:
+
+```typescript
+const prompt = `
+Generate a test scenario for a transactional key-value store that tests
+the following edge case: ${edgeCaseDescription}
+
+Use this DSL format:
+scenario("name")
+  .transaction("t1", { st: 0 })
+  .update("key", assign(value))
+  .commit({ ct: 5 })
+  ...
+`
+
+// LLM generates scenario, parse and execute
+const generatedCode = await llm.complete(prompt)
+const scenario = eval(generatedCode) // Or safer: parse DSL
+await runScenario(scenario, store)
+```
+
+### 7.2 Invariant Discovery
+
+LLMs can help identify invariants you missed:
+
+```typescript
+const prompt = `
+Given this transactional storage system with these operations:
+- assign(key, value): Set key to value
+- increment(key, delta): Add delta to key
+- delete(key): Remove key
+- merge(a, b): Combine concurrent effects
+
+What invariants should always hold? Consider:
+1. Algebraic properties (commutativity, associativity, etc.)
+2. Transaction isolation guarantees
+3. Durability guarantees
+4. Consistency across replicas
+`
+```
+
+### 7.3 Failure Analysis
+
+When fuzz tests fail, use LLM to analyze:
+
+```typescript
+const analysisPrompt = `
+A fuzz test failed with this minimal scenario:
+${JSON.stringify(shrunkScenario, null, 2)}
+
+Store A produced: ${JSON.stringify(resultA)}
+Store B produced: ${JSON.stringify(resultB)}
+
+Analyze:
+1. What invariant was violated?
+2. What's the likely root cause?
+3. Which store is correct according to the spec?
+`
+```
+
+---
+
+## Part 8: Lessons Learned
+
+### 8.1 Start Simple, Add Complexity
+
+1. **Day 1**: Basic types + single-key operations
+2. **Day 2**: Multi-key transactions
+3. **Day 3**: Concurrent transaction handling
+4. **Day 4**: Property tests for operators
+5. **Day 5**: Fuzz testing framework
+6. **Day 6**: Multiple store implementations
+7. **Day 7**: Consistency model verification
+
+### 8.2 Debug Failures Systematically
+
+When a test fails:
+
+1. **Shrink** to minimal failing case
+2. **Trace** the execution step by step
+3. **Compare** against specification
+4. **Identify** which invariant was violated
+5. **Fix** in the implementation OR the test (sometimes tests are wrong!)
+
+### 8.3 Document Semantic Decisions
+
+When the spec is ambiguous, document your choices:
+
+```typescript
+/**
+ * Increment applied to BOTTOM returns the delta value.
+ *
+ * Rationale: When concurrent increments occur without a common
+ * predecessor assignment, we treat BOTTOM as 0. This enables
+ * counter CRDT semantics where increment(5) || increment(3) = 8.
+ *
+ * Alternative interpretation: Could return BOTTOM (undefined + n = undefined).
+ * We chose additive semantics for practical counter use cases.
+ *
+ * See: CobbleDB paper Section 4.2, Definition 3
+ */
+if (isBottom(value)) {
+  return effect.delta // Not BOTTOM
+}
+```
+
+### 8.4 Test the Tests
+
+Meta-testing catches specification bugs:
+
+```typescript
+it("test suite covers all effect type combinations", () => {
+  const coveredCombinations = new Set<string>()
+
+  for (const scenario of standardScenarios) {
+    for (const step of scenario.steps) {
+      if (step.type === "update") {
+        coveredCombinations.add(step.effect.type)
+      }
+    }
+  }
+
+  expect(coveredCombinations).toContain("assign")
+  expect(coveredCombinations).toContain("increment")
+  expect(coveredCombinations).toContain("delete")
+})
+```
+
+---
+
+## Part 9: Where This Breaks Down
+
+This approach has costs and failure modes. Be honest about them:
+
+### 9.1 Upfront Investment
+
+Building conformance suites takes time. For throwaway prototypes or rapidly pivoting products, the overhead isn't worth it. The payoff comes from **reuse**—multiple implementations, long-lived systems, many agents touching the code.
+
+### 9.2 Not Everything Is Specifiable
+
+Some systems have emergent behavior that resists clean specification:
+
+- Neural network edge cases
+- Simulation chaos
+- UI "feel"
+- Performance characteristics
+
+The configurancy layer can describe inputs and outputs, but some interesting behavior happens in between.
+
+### 9.3 Conformance Suite Quality Is Critical
+
+A weak conformance suite gives false confidence. JustHTML works because html5lib-tests is comprehensive and battle-tested over years by browser vendors. Rolling your own suite requires expertise and iteration.
+
+**If your suite has gaps, agents will confidently produce incorrect implementations.**
+
+### 9.4 Agents Propagate Mistakes Fast
+
+If you update the spec incorrectly, agents will dutifully propagate that mistake across dozens of files. The velocity cuts both ways.
+
+Mitigation: The conformance suite catches spec errors that break tests before propagation completes. But this only works if your suite is comprehensive.
+
+### 9.5 Cultural Change Is Hard
+
+Teams need to treat spec updates as first-class changes. If developers bypass the spec and edit code directly, you're back to documentation drift—now with extra steps.
+
+### 9.6 When NOT to Use This Approach
+
+- **Throwaway scripts**: Just write the code
+- **Rapid prototypes**: Spec will change too fast
+- **Emergent behavior**: Can't specify what you don't understand
+- **Solo projects**: You ARE the shared context
+- **Time pressure**: Ship first, formalize later (but actually do it later)
+
+The approach pays off for **stable protocols**, **clear-contract libraries**, and **systems that must evolve without breaking**.
+
+---
+
+## Part 10: Formal Verification Background
+
+Understanding the history of formal verification helps you make better DSL design decisions. Each milestone introduced ideas you can steal for testing work.
+
+### 10.1 Hoare Logic (1969): Contracts and Pre/Post Conditions
+
+**Core idea**: Correctness can be stated as compositional pre/post conditions on program fragments.
+
+Hoare's 1969 paper introduced what became known as Hoare triples `{P} C {Q}`—a way to reason about programs by local reasoning rules. This is the intellectual ancestor of all design-by-contract systems.
+
+**What you can steal**:
+
+- Your DSL steps are essentially commands; you can attach pre/post assertions to each step and have the runner check them as runtime contracts.
+- This naturally suggests **assume/guarantee** style scenario blocks: "under these environment assumptions, these guarantees must hold."
+
+```typescript
+scenario("transfer-funds")
+  .assume({ balance: { gte: 100 } }) // Precondition
+  .transaction("t1", { st: 0 })
+  .update("balance", increment(-100))
+  .guarantee({ balance: { gte: 0 } }) // Postcondition
+  .commit({ ct: 5 })
+```
+
+**Reference**: [Hoare, "An Axiomatic Basis for Computer Programming" (1969)](https://dl.acm.org/doi/10.1145/363235.363259)
+
+### 10.2 Dijkstra's Guarded Commands (1975): Nondeterminism as a Feature
+
+**Core idea**: Instead of testing after the fact, derive programs from specs using calculational reasoning. Nondeterminism is a first-class modeling tool.
+
+**What you can steal**:
+
+- Treat nondeterminism as a spec feature, not a bug. Your DSL can express "any of these schedules" or "any of these interleavings," and your checker verifies properties across all of them.
+- This is why TLA+/model checking work well for distributed systems—nondeterminism is explicit.
+
+```typescript
+// Express "any ordering is valid"
+scenario("concurrent-writes")
+  .anyOrder([
+    () => builder.transaction("t1").update("x", assign(1)).commit(),
+    () => builder.transaction("t2").update("x", assign(2)).commit(),
+  ])
+  .verify((result) => result.x === 1 || result.x === 2)
+```
+
+**Reference**: [Dijkstra, "Guarded Commands, Nondeterminacy and Formal Derivation of Programs" (1975)](https://dl.acm.org/doi/10.1145/360933.360975)
+
+### 10.3 Abstract Interpretation (1977): Sound Approximation
+
+**Core idea**: Analyze programs by mapping them into an abstract domain that's cheaper to explore, while staying sound (no false negatives for properties you care about).
+
+Cousot & Cousot introduced abstract interpretation as a unified theory of static analysis. It's the philosophical antidote to "we can't hold it all in our heads"—a theory of compressing semantics.
+
+**What you can steal**:
+
+- Your "configurancy layer" is an abstraction boundary. Make it explicit: what observations matter, what internal details are abstracted away.
+- Your fuzz generator is selecting points in the abstract domain; your oracle/checker is validating projected properties.
+
+```typescript
+// Abstract domain: just track whether value is BOTTOM, ZERO, POSITIVE, NEGATIVE
+type AbstractValue = "bottom" | "zero" | "positive" | "negative"
+
+function abstractIncrement(v: AbstractValue, delta: number): AbstractValue {
+  if (v === "bottom")
+    return delta > 0 ? "positive" : delta < 0 ? "negative" : "zero"
+  // ... sound over-approximation
+}
+```
+
+**Reference**: [Cousot & Cousot, "Abstract Interpretation: A Unified Lattice Model" (1977)](https://www.di.ens.fr/~cousot/publications.www/CousotCousot-POPL-77-ACM-p238--252-1977.pdf)
+
+### 10.4 Temporal Logic (1977): From States to Traces
+
+**Core idea**: For concurrent/distributed systems, correctness is about sequences over time, not just single end states.
+
+Pnueli's 1977 work introduced temporal logic into program reasoning. Lamport later developed TLA ("Temporal Logic of Actions") and emphasized specs as formulas over behaviors.
+
+**What you can steal**:
+
+- Your history-based verification is already trace-thinking. Add explicit mention of **safety vs liveness**:
+  - **Safety**: "nothing bad happens" (bad state not reachable)
+  - **Liveness**: "something good eventually happens" (progress, no deadlock/starvation)
+- Your DSL currently centers safety; nemesis/fault injection introduces liveness bugs (can the system make progress under failure?).
+
+```typescript
+// Safety property: no overdraft ever occurs
+const noOverdraft: SafetyProperty = (history) =>
+  history.every((state) => state.balance >= 0)
+
+// Liveness property: every request eventually completes
+const eventualCompletion: LivenessProperty = (history) =>
+  history
+    .filter((e) => e.type === "request")
+    .every((req) =>
+      history.some(
+        (resp) => resp.type === "response" && resp.requestId === req.id
+      )
+    )
+```
+
+**Reference**: [Pnueli, "The Temporal Logic of Programs" (1977)](https://amturing.acm.org/bib/pnueli_4725172.cfm)
+
+### 10.5 Model Checking (1980s): Exhaustive but Disciplined
+
+**Core idea**: Exhaustively explore a finite state space automatically, find counterexamples you didn't imagine.
+
+Clarke, Emerson, and Sifakis received the 2007 Turing Award for model checking. It became one of the big success stories of formal verification.
+
+**What you can steal**:
+
+- Your fuzzing is "Monte Carlo model checking"—random exploration of the state space.
+- Add a **state-space budget** as a first-class concept: max states, max depth, max transactions.
+- Model checking wins by producing counterexample traces. Your shrinker is already trying to get there—lean into that.
+
+```typescript
+interface ExplorationBudget {
+  maxStates: number
+  maxDepth: number
+  maxTransactions: number
+  timeoutMs: number
+}
+
+function explore(
+  initial: State,
+  budget: ExplorationBudget
+): Counterexample | null {
+  const visited = new Set<StateHash>()
+  const queue: Array<{ state: State; trace: Step[] }> = [
+    { state: initial, trace: [] },
+  ]
+
+  while (queue.length > 0 && visited.size < budget.maxStates) {
+    const { state, trace } = queue.shift()!
+    if (violatesInvariant(state)) {
+      return { trace, finalState: state }
+    }
+    for (const next of successors(state)) {
+      if (!visited.has(hash(next))) {
+        visited.add(hash(next))
+        queue.push({ state: next, trace: [...trace, lastStep] })
+      }
+    }
+  }
+  return null
+}
+```
+
+**Reference**: [Clarke, Emerson, Sifakis, "Model Checking" (2007 Turing Award)](https://www-verimag.imag.fr/~sifakis/TuringAwardPaper-Apr14.pdf)
+
+### 10.6 SAT/SMT and Bounded Model Checking (2000s): Verification Meets Constraint Solving
+
+**Core idea**: Translate bounded executions into SAT/SMT and let solvers find counterexamples.
+
+Bounded model checking (BMC) is a key bridge: you don't explore the whole system, you explore all behaviors up to depth _k_ using solvers. Then CEGAR (counterexample-guided abstraction refinement) turns this into a loop: start abstract, get a counterexample, refine if spurious, repeat.
+
+**What you can steal**:
+
+- Your "shrinking failing cases" is a cousin of CEGAR: refining toward the smallest real counterexample.
+- Consider making the checker explain failures in a solver-friendly way (constraints, witnesses), not just "expected vs got."
+
+A killer example in your domain: **Cobra** uses SMT to check serializability for transactional KV stores at scale. It's "Elle + solver horsepower + engineering."
+
+```typescript
+// Encode serializability as constraints
+function encodeAsConstraints(history: History): SMTFormula {
+  const constraints: Clause[] = []
+
+  // For each pair of transactions, one must come before the other
+  for (const t1 of history.transactions) {
+    for (const t2 of history.transactions) {
+      if (t1.id !== t2.id) {
+        constraints.push(or(before(t1, t2), before(t2, t1)))
+      }
+    }
+  }
+
+  // Dependencies must be respected
+  for (const edge of buildDependencyEdges(history)) {
+    constraints.push(before(edge.from, edge.to))
+  }
+
+  return and(...constraints) // SAT iff serializable
+}
+```
+
+**References**:
+
+- [Bounded Model Checking (CMU)](https://www.cs.cmu.edu/~emc/papers/Books%20and%20Edited%20Volumes/Bounded%20Model%20Checking.pdf)
+- [CEGAR (Stanford)](https://web.stanford.edu/class/cs357/cegar.pdf)
+- [Cobra: Verifiably Serializable KV Stores (OSDI '20)](https://www.usenix.org/conference/osdi20/presentation/tan)
+
+### 10.7 Alloy and the Small Scope Hypothesis (2000s)
+
+**Core idea**: Most design bugs show up in small counterexamples; search small scopes exhaustively.
+
+Daniel Jackson's Alloy work popularized this: you don't prove, you _find counterexamples fast_ within a bound, guided by the "small scope hypothesis."
+
+**What you can steal**:
+
+- Your "start simple, add complexity" is the same tactic.
+- Make **scope** explicit in DSL and fuzz configs: number of transactions, keys, concurrency degree, failure injections.
+- Consider an "exhaust small scope" mode in addition to fuzzing—surprisingly potent.
+
+```typescript
+// Exhaustively test all scenarios with ≤3 transactions, ≤2 keys
+function exhaustSmallScope(): void {
+  for (const numTxns of [1, 2, 3]) {
+    for (const numKeys of [1, 2]) {
+      for (const scenario of generateAllScenarios(numTxns, numKeys)) {
+        const result = executeScenario(scenario, store())
+        expect(result.valid).toBe(true)
+      }
+    }
+  }
+}
+```
+
+**Reference**: [Jackson, "Alloy: A Language and Tool for Exploring Software Designs" (2019)](https://groups.csail.mit.edu/sdg/pubs/2019/alloy-cacm-18-feb-22-2019.pdf)
+
+### 10.8 Refinement Proofs: seL4 and CompCert
+
+**Core idea**: Prove that an implementation _refines_ a spec; then properties proven about the spec carry to the implementation.
+
+- **seL4**: Formally verified OS kernel using refinement across multiple specification layers.
+- **CompCert**: Formally verified C compiler demonstrating semantic preservation across compilation.
+
+**What you can steal**:
+
+- Your "ReferenceStore" section is a testing analog of refinement: implementation should match a simpler model.
+- Formalize this: define a refinement relation `R(impl_state, spec_state)` and check it dynamically after each step. That gives you localization: the failure happens at the first step where `R` breaks.
+
+```typescript
+interface RefinementCheck<ImplState, SpecState> {
+  abstract(impl: ImplState): SpecState
+  equivalent(impl: ImplState, spec: SpecState): boolean
+}
+
+function checkRefinement<I, S>(
+  impl: Store<I>,
+  spec: Store<S>,
+  scenario: ScenarioDefinition,
+  refinement: RefinementCheck<I, S>
+): { valid: boolean; failingStep?: number } {
+  for (let i = 0; i < scenario.steps.length; i++) {
+    executeStep(impl, scenario.steps[i])
+    executeStep(spec, scenario.steps[i])
+
+    if (!refinement.equivalent(impl.getState(), spec.getState())) {
+      return { valid: false, failingStep: i }
+    }
+  }
+  return { valid: true }
+}
+```
+
+**References**:
+
+- [seL4: Formal Verification of an OS Kernel (2009)](https://read.seas.harvard.edu/~kohler/class/cs260r-17/klein10sel4.pdf)
+- [CompCert: Formal Verification of a Realistic Compiler (2009)](https://xavierleroy.org/publi/compcert-CACM.pdf)
+
+### 10.9 Industrial Adoption: TLA+ at Amazon
+
+The AWS experience reports are worth calling out: complicated distributed systems produce subtle bugs that tests miss; a small spec can catch them earlier.
+
+**What you can steal**:
+
+- Treat the DSL as a _design tool_ as much as a test tool. The spec is not post-hoc documentation; it's how you think.
+- Amazon found TLA+ caught bugs in DynamoDB, S3, EBS, and other services—bugs that extensive testing had missed.
+
+**Reference**: [How Amazon Web Services Uses Formal Methods (2015)](https://dl.acm.org/doi/10.1145/2699417)
+
+### 10.10 Deeper TLA+ Lessons: What We Can Actually Steal
+
+TLA+ isn't just "formal methods for distributed systems"—it embodies specific design patterns that make specifications tractable. Here are the actionable ones:
+
+#### 10.10.1 Init/Next Formalism
+
+Every TLA+ spec has the same shape:
+
+```
+Spec == Init ∧ □[Next]_vars
+```
+
+This means: start in an Init state, and every step either satisfies Next or stutters (vars unchanged).
+
+**What to steal**: Make your state machine structure explicit:
+
+```typescript
+// Explicit Init predicate
+function Init(): SystemState {
+  return {
+    transactions: new Map(),
+    store: createMapStore(),
+    committed: new Set(),
+    aborted: new Set(),
+  }
+}
+
+// Explicit Next relation - disjunction of all possible actions
+type Action =
+  | { type: "Begin"; txnId: TxnId; snapshotTs: Timestamp }
+  | { type: "Update"; txnId: TxnId; key: Key; effect: Effect }
+  | { type: "Read"; txnId: TxnId; key: Key }
+  | { type: "Commit"; txnId: TxnId; commitTs: Timestamp }
+  | { type: "Abort"; txnId: TxnId }
+
+function Next(state: SystemState, action: Action): SystemState | null {
+  // Returns new state if action is valid, null if disabled
+  switch (action.type) {
+    case "Begin":
+      if (state.transactions.has(action.txnId)) return null // ENABLED check
+      return { ...state, transactions: new Map([...state.transactions, [action.txnId, { ... }]]) }
+    // ... etc
+  }
+}
+```
+
+This separation makes it trivial to enumerate all possible behaviors.
+
+#### 10.10.2 The ENABLED Predicate
+
+In TLA+, `ENABLED A` is true when action A can be taken from the current state. This is crucial for:
+
+- **Deadlock detection**: System is deadlocked if no action is enabled
+- **Fairness**: Weak fairness says "if A is continuously enabled, A eventually happens"
+
+**What to steal**: Add explicit enabledness checks:
+
+```typescript
+interface ActionEnabledness {
+  Begin: (txnId: TxnId) => boolean
+  Update: (txnId: TxnId) => boolean
+  Read: (txnId: TxnId) => boolean
+  Commit: (txnId: TxnId) => boolean
+  Abort: (txnId: TxnId) => boolean
+}
+
+function getEnabledActions(state: SystemState): ActionEnabledness {
+  return {
+    Begin: (txnId) => !state.transactions.has(txnId),
+    Update: (txnId) => state.transactions.get(txnId)?.status === "running",
+    Read: (txnId) => state.transactions.get(txnId)?.status === "running",
+    Commit: (txnId) => state.transactions.get(txnId)?.status === "running",
+    Abort: (txnId) => state.transactions.get(txnId)?.status === "running",
+  }
+}
+
+// Deadlock check: is ANY action enabled?
+function isDeadlocked(state: SystemState): boolean {
+  const enabled = getEnabledActions(state)
+  // If we have running transactions but none can progress...
+  for (const [txnId, txn] of state.transactions) {
+    if (txn.status === "running") {
+      if (
+        enabled.Update(txnId) ||
+        enabled.Commit(txnId) ||
+        enabled.Abort(txnId)
+      ) {
+        return false // At least one action available
+      }
+    }
+  }
+  return state.transactions.size > 0 // Deadlocked if txns exist but none can act
+}
+```
+
+#### 10.10.3 Stuttering Steps and Refinement
+
+TLA+ allows "stuttering steps" where the state doesn't change. This seems trivial but is essential for refinement: a high-level spec might take one step where the implementation takes three.
+
+**Why it matters**: When checking refinement between MapStore and StreamStore, they might take different numbers of internal steps. Stuttering-closed refinement says: "if I map impl states to spec states, the spec allows at least as many behaviors."
+
+**What to steal**: Your refinement check should tolerate implementation steps that don't change observable state:
+
+```typescript
+function checkRefinementWithStuttering(
+  refStates: State[],
+  implStates: State[],
+  abstractionFn: (implState: State) => State
+): boolean {
+  let refIdx = 0
+
+  for (const implState of implStates) {
+    const abstractState = abstractionFn(implState)
+
+    if (statesEqual(abstractState, refStates[refIdx])) {
+      // Stuttering step - impl moved but abstract state unchanged
+      continue
+    }
+
+    // Non-stuttering step - must match next ref state
+    refIdx++
+    if (
+      refIdx >= refStates.length ||
+      !statesEqual(abstractState, refStates[refIdx])
+    ) {
+      return false // Refinement violation
+    }
+  }
+
+  return true
+}
+```
+
+#### 10.10.4 Fairness Constraints
+
+TLA+ distinguishes:
+
+- **Weak Fairness (WF)**: If action A is _continuously_ enabled, it eventually happens
+- **Strong Fairness (SF)**: If action A is _repeatedly_ enabled, it eventually happens
+
+For liveness properties ("eventually something good happens"), you need fairness assumptions.
+
+**Example**: "Every started transaction eventually commits or aborts"
+
+```typescript
+// This is a liveness property - needs fairness to be meaningful
+function eventuallyCompletes(history: History): boolean {
+  for (const txn of history.transactions) {
+    if (txn.status === "running") {
+      return false // Still running at end of trace
+    }
+  }
+  return true
+}
+
+// To TEST this, you need fairness in your scenario generator:
+function generateFairScenario(rng: RNG): Scenario {
+  const events: Event[] = []
+  const runningTxns = new Set<TxnId>()
+
+  while (events.length < MAX_EVENTS) {
+    // Weak fairness: if a txn has been running "too long", force completion
+    for (const txnId of runningTxns) {
+      if (eventsSinceBegin(events, txnId) > FAIRNESS_BOUND) {
+        // Force commit or abort
+        events.push(
+          rng.choice([
+            { type: "Commit", txnId },
+            { type: "Abort", txnId },
+          ])
+        )
+        runningTxns.delete(txnId)
+      }
+    }
+    // ... normal event generation
+  }
+  return { events }
+}
+```
+
+#### 10.10.5 Invariants vs Temporal Properties
+
+TLA+ cleanly separates:
+
+- **State invariants**: `Invariant == ∀ state: P(state)` — checked at each state
+- **Temporal properties**: `Property == □(P ⇒ ◇Q)` — checked over traces
+
+**What to steal**: Be explicit about which is which:
+
+```typescript
+// STATE INVARIANT: Can be checked at any single state
+// "No transaction is both committed and aborted"
+function Inv_NoDoubleFinish(state: SystemState): boolean {
+  for (const txnId of state.committed) {
+    if (state.aborted.has(txnId)) return false
+  }
+  return true
+}
+
+// TEMPORAL PROPERTY: Requires a trace to check
+// "If a transaction reads a key, it eventually sees a consistent value"
+function Temporal_ReadConsistency(trace: State[]): boolean {
+  // Need to track across states...
+  for (let i = 0; i < trace.length; i++) {
+    const reads = getReadsAt(trace, i)
+    for (const read of reads) {
+      // Check that read value is consistent with some serialization
+      // This requires looking at the whole trace
+    }
+  }
+  return true
+}
+
+// Your test runner should handle both:
+function checkTrace(trace: State[]): CheckResult {
+  // Check invariants at EVERY state
+  for (let i = 0; i < trace.length; i++) {
+    if (!Inv_NoDoubleFinish(trace[i])) {
+      return { valid: false, violation: "invariant", step: i }
+    }
+  }
+
+  // Check temporal properties over the WHOLE trace
+  if (!Temporal_ReadConsistency(trace)) {
+    return { valid: false, violation: "temporal" }
+  }
+
+  return { valid: true }
+}
+```
+
+#### 10.10.6 State Space Explosion and Symmetry
+
+TLA+'s model checker (TLC) faces state explosion. It uses:
+
+- **Symmetry reduction**: If states are equivalent under permutation, check only one
+- **State hashing**: Recognize previously-seen states
+
+**What to steal**: When doing exhaustive testing, reduce the space:
+
+```typescript
+// Instead of testing all permutations of transaction IDs...
+// t1,t2,t3 and t2,t1,t3 and t3,t1,t2 are equivalent under renaming
+
+function canonicalize(scenario: Scenario): Scenario {
+  // Rename transactions to canonical form: first-seen = t0, second-seen = t1, etc.
+  const renaming = new Map<TxnId, TxnId>()
+  let nextId = 0
+
+  const canonicalEvents = scenario.events.map((event) => {
+    if (!renaming.has(event.txnId)) {
+      renaming.set(event.txnId, `t${nextId++}`)
+    }
+    return { ...event, txnId: renaming.get(event.txnId)! }
+  })
+
+  return { events: canonicalEvents }
+}
+
+// Now you can deduplicate:
+const seen = new Set<string>()
+for (const scenario of generateAllScenarios()) {
+  const canonical = canonicalize(scenario)
+  const key = JSON.stringify(canonical)
+  if (seen.has(key)) continue
+  seen.add(key)
+
+  // Only test canonical representatives
+  runTest(canonical)
+}
+```
+
+**Reference**: [Specifying Systems (Lamport)](https://lamport.azurewebsites.net/tla/book.html) - The TLA+ book, free online
+
+#### 10.10.7 LTL Property Patterns
+
+TLA+ and temporal logic have standard patterns that recur constantly. Instead of reinventing them, use the pattern catalog:
+
+| Pattern          | LTL Formula             | Meaning                      |
+| ---------------- | ----------------------- | ---------------------------- |
+| **Absence**      | `□¬P`                   | P never happens (safety)     |
+| **Existence**    | `◇P`                    | P happens at least once      |
+| **Universality** | `□P`                    | P always holds (invariant)   |
+| **Response**     | `□(P ⇒ ◇Q)`             | Whenever P, eventually Q     |
+| **Precedence**   | `¬Q W P` or `□(Q ⇒ ◇P)` | P must happen before Q       |
+| **Until**        | `P U Q`                 | P holds until Q becomes true |
+
+**What to steal**: Build a pattern library:
+
+```typescript
+// LTL pattern library for your DSL
+const ltlPatterns = {
+  // Safety: bad thing never happens
+  absence:
+    <T>(badState: (s: T) => boolean) =>
+    (trace: T[]): boolean =>
+      trace.every((s) => !badState(s)),
+
+  // Liveness: good thing eventually happens
+  existence:
+    <T>(goodState: (s: T) => boolean) =>
+    (trace: T[]): boolean =>
+      trace.some((s) => goodState(s)),
+
+  // Invariant: property always holds
+  universality:
+    <T>(prop: (s: T) => boolean) =>
+    (trace: T[]): boolean =>
+      trace.every((s) => prop(s)),
+
+  // Response: if trigger, then eventually response
+  response:
+    <T>(trigger: (s: T) => boolean, response: (s: T) => boolean) =>
+    (trace: T[]): boolean => {
+      for (let i = 0; i < trace.length; i++) {
+        if (trigger(trace[i])) {
+          // Must find response in suffix
+          const suffix = trace.slice(i)
+          if (!suffix.some((s) => response(s))) return false
+        }
+      }
+      return true
+    },
+
+  // Precedence: if Q happens, P must have happened before
+  precedence:
+    <T>(before: (s: T) => boolean, after: (s: T) => boolean) =>
+    (trace: T[]): boolean => {
+      let seenBefore = false
+      for (const s of trace) {
+        if (before(s)) seenBefore = true
+        if (after(s) && !seenBefore) return false
+      }
+      return true
+    },
+}
+
+// Usage
+const noDoubleCommit = ltlPatterns.absence<TxnState>(
+  (s) => s.committed.size !== new Set(s.committed).size
+)
+
+const commitImpliesBegin = ltlPatterns.precedence<Event>(
+  (e) => e.type === "begin",
+  (e) => e.type === "commit"
+)
+
+const requestGetsResponse = ltlPatterns.response<Event>(
+  (e) => e.type === "read",
+  (e) => e.type === "readResult"
+)
+```
+
+**Reference**: [LTL Property Pattern Catalog (Kansas State)](http://patterns.projects.cs.ksu.edu/)
+
+#### 10.10.8 Assume-Guarantee Decomposition
+
+When testing systems with many interacting components, enumeration explodes. Assume-guarantee lets you verify components in isolation:
+
+```
+Component A: Assume environment provides X, Guarantee A provides Y
+Component B: Assume environment provides Y, Guarantee B provides Z
+Composition: X → A → Y → B → Z (if assumptions form a DAG)
+```
+
+**What to steal**: Test transactions in isolation with explicit assumptions:
+
+```typescript
+interface AssumeGuarantee<S, A> {
+  assume: (state: S, action: A) => boolean // What we assume about environment
+  guarantee: (state: S, action: A, nextState: S) => boolean // What we promise
+}
+
+// Per-transaction contract
+const snapshotIsolationContract: AssumeGuarantee<TxnState, TxnAction> = {
+  // Assume: other transactions don't expose uncommitted writes
+  assume: (state, action) => {
+    if (action.type === "read") {
+      // We assume we only see committed values
+      return state.visibleWrites.every((w) => w.committed)
+    }
+    return true
+  },
+
+  // Guarantee: our reads are consistent with our snapshot
+  guarantee: (state, action, nextState) => {
+    if (action.type === "read") {
+      const readValue = nextState.lastRead
+      const snapshotValue = state.snapshotAt(state.snapshotTs, action.key)
+      return readValue === snapshotValue
+    }
+    return true
+  },
+}
+
+// Verify component in isolation
+function verifyContract<S, A>(
+  contract: AssumeGuarantee<S, A>,
+  trace: Array<{ state: S; action: A; nextState: S }>
+): boolean {
+  for (const step of trace) {
+    // Only check guarantee if assumption holds
+    if (contract.assume(step.state, step.action)) {
+      if (!contract.guarantee(step.state, step.action, step.nextState)) {
+        return false // Guarantee violated
+      }
+    }
+  }
+  return true
+}
+
+// Compose contracts: verify the DAG of assumptions
+function verifyComposition(contracts: AssumeGuarantee<any, any>[]): boolean {
+  // Check that each component's guarantee implies the next's assumption
+  // This is the "circular reasoning" check
+  for (let i = 0; i < contracts.length - 1; i++) {
+    // contracts[i].guarantee ⇒ contracts[i+1].assume
+    // ... verification logic
+  }
+  return true
+}
+```
+
+**Why it matters**: Instead of testing 1000 transactions together (explosion), test each transaction type against its contract, then verify contracts compose.
+
+#### 10.10.9 Spec Composition Patterns
+
+Real systems combine multiple specs. TLA+ has clean composition:
+
+```
+Spec1 ∧ Spec2        // Both must hold (conjunction)
+Spec1 ∨ Spec2        // Either can hold (disjunction)
+∃ x: Spec(x)         // Hiding/existential (internal variables)
+Spec[a ← b]          // Substitution (renaming)
+```
+
+**What to steal**: Build composable spec fragments:
+
+```typescript
+// Spec composition DSL
+type Spec<S> = (trace: S[]) => boolean
+
+const composeSpecs = {
+  // Both specs must hold
+  and:
+    <S>(...specs: Spec<S>[]): Spec<S> =>
+    (trace) =>
+      specs.every((spec) => spec(trace)),
+
+  // At least one spec must hold
+  or:
+    <S>(...specs: Spec<S>[]): Spec<S> =>
+    (trace) =>
+      specs.some((spec) => spec(trace)),
+
+  // Spec holds after projecting away internal details
+  hiding:
+    <S, T>(spec: Spec<T>, project: (s: S) => T): Spec<S> =>
+    (trace) =>
+      spec(trace.map(project)),
+
+  // Spec with renamed variables
+  rename:
+    <S>(spec: Spec<S>, renaming: (s: S) => S): Spec<S> =>
+    (trace) =>
+      spec(trace.map(renaming)),
+}
+
+// Usage: compose transaction spec from parts
+const txnSpec = composeSpecs.and(
+  snapshotIsolationSpec,
+  atomicitySpec,
+  durabilitySpec
+)
+
+// Hide internal buffering details for client-visible spec
+const clientVisibleSpec = composeSpecs.hiding(txnSpec, (s) => ({
+  reads: s.reads,
+  writes: s.committedWrites, // Hide uncommitted
+}))
+```
+
+#### 10.10.10 Systematic Liveness Checking
+
+Beyond fairness constraints, TLA+ uses several strategies for liveness:
+
+1. **Bounded liveness**: Property holds within N steps
+2. **Progress measures**: Ranking function that decreases (proves termination)
+3. **Acceptance conditions**: Büchi automata (trace is accepted if good states visited infinitely)
+
+**What to steal**: Multiple liveness checking strategies:
+
+```typescript
+// Strategy 1: Bounded liveness
+function boundedLiveness<S>(
+  trace: S[],
+  trigger: (s: S) => boolean,
+  response: (s: S) => boolean,
+  bound: number
+): boolean {
+  for (let i = 0; i < trace.length; i++) {
+    if (trigger(trace[i])) {
+      // Response must occur within `bound` steps
+      const window = trace.slice(i, i + bound + 1)
+      if (!window.some(response)) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+// Strategy 2: Progress measure (ranking function)
+function progressMeasure<S>(
+  trace: S[],
+  rank: (s: S) => number, // Must decrease or stay same
+  decreases: (s1: S, s2: S) => boolean // True if made progress
+): { valid: boolean; stuck?: number } {
+  for (let i = 1; i < trace.length; i++) {
+    const r1 = rank(trace[i - 1])
+    const r2 = rank(trace[i])
+
+    if (r2 > r1) {
+      return { valid: false, stuck: i } // Rank increased - no progress
+    }
+  }
+
+  // Check we eventually reach zero (termination)
+  const finalRank = rank(trace[trace.length - 1])
+  return { valid: finalRank === 0 }
+}
+
+// Strategy 3: Check that "good" states are visited
+function acceptanceCondition<S>(
+  trace: S[],
+  accepting: (s: S) => boolean
+): boolean {
+  // For finite traces: must end in accepting state
+  return accepting(trace[trace.length - 1])
+}
+
+// Combined liveness checker
+function checkLiveness<S>(
+  trace: S[],
+  property: LivenessProperty<S>
+): LivenessResult {
+  switch (property.strategy) {
+    case "bounded":
+      return {
+        valid: boundedLiveness(
+          trace,
+          property.trigger,
+          property.response,
+          property.bound
+        ),
+        strategy: "bounded",
+      }
+
+    case "ranking":
+      return {
+        ...progressMeasure(trace, property.rank, property.decreases),
+        strategy: "ranking",
+      }
+
+    case "acceptance":
+      return {
+        valid: acceptanceCondition(trace, property.accepting),
+        strategy: "acceptance",
+      }
+  }
+}
+
+// Example: "Every begin eventually completes"
+const eventualCompletion: LivenessProperty<TxnTrace> = {
+  strategy: "ranking",
+  rank: (trace) => trace.filter((e) => e.status === "running").length,
+  decreases: (t1, t2) =>
+    t2.filter((e) => e.status === "running").length <
+    t1.filter((e) => e.status === "running").length,
+}
+```
+
+**Reference**: [Temporal Verification of Reactive Systems (Manna & Pnueli)](https://www.springer.com/gp/book/9780387944593)
+
+### 10.11 Industrial Lessons: What Actually Works in Practice
+
+Research into TLA+ adoption at Amazon, FoundationDB, and other companies reveals patterns worth stealing.
+
+#### 10.11.1 The 35-Step Bug
+
+Amazon's DynamoDB team found a bug requiring 35 steps to trigger—a sequence no human reviewer would discover. The model checker found it in minutes.
+
+**Lesson**: Exhaustive exploration beats human intuition for edge cases. Your DSL should make long scenario exploration easy:
+
+```typescript
+// Exploration tiers - scale bounds based on confidence needed
+const EXPLORATION_TIERS = {
+  // Fast feedback during development
+  unit: { keys: 1, txns: 2, effects: 3, expectedStates: "~1K" },
+
+  // Thorough integration testing
+  integration: { keys: 2, txns: 4, effects: 5, expectedStates: "~100K" },
+
+  // Pre-release stress testing
+  stress: { keys: 3, txns: 6, effects: 7, expectedStates: "~10M" },
+}
+
+function exhaustiveTest(tier: keyof typeof EXPLORATION_TIERS) {
+  const bounds = EXPLORATION_TIERS[tier]
+  for (const scenario of generateBounded(bounds)) {
+    runAndVerify(scenario)
+  }
+}
+```
+
+#### 10.11.2 Quint: Modern TLA+ with TypeScript Vibes
+
+[Quint](https://github.com/informalsystems/quint) is a modern alternative to TLA+ with programming-style syntax:
+
+| TLA+ Pain Point  | Quint Solution         | Your DSL Advantage       |
+| ---------------- | ---------------------- | ------------------------ |
+| Math notation    | `and`, `or`, `not`     | Native TypeScript        |
+| No type checking | Built-in types & modes | TypeScript's type system |
+| Slow feedback    | REPL, instant feedback | Vitest watch mode        |
+| Not executable   | `run` for test exec    | Already executable       |
+
+**Key Quint concept**: Explicit modes distinguish stateless functions from state-modifying actions:
+
+```quint
+// Quint's mode system
+pure def double(x: int): int = x * 2           // Stateless, deterministic
+action increment(x): bool = x' = x + 1         // State transition
+temporal eventually_zero = eventually(x == 0)  // Temporal property
+```
+
+**What to steal**: Consider adding explicit annotations for different specification modes:
+
+```typescript
+// Mode-aware specification
+const spec = {
+  // Pure: no side effects, deterministic
+  pure: {
+    applyEffect: (value: Value, effect: Effect) => Value,
+    mergeEffects: (e1: Effect, e2: Effect) => Effect,
+  },
+
+  // Action: state transitions
+  actions: {
+    begin: (state: State, txnId: TxnId) => State,
+    commit: (state: State, txnId: TxnId) => State,
+  },
+
+  // Temporal: properties over traces
+  temporal: {
+    eventuallyCommits: (trace: State[]) => boolean,
+    alwaysConsistent: (trace: State[]) => boolean,
+  },
+}
+```
+
+#### 10.11.3 Deterministic Simulation Testing (FoundationDB's Secret)
+
+FoundationDB had only 1-2 customer-reported bugs ever. Kyle Kingsbury (Jepsen) refused to test it because their simulator already stress-tested more thoroughly than Jepsen could.
+
+**The formula**: `DST = no parallelism + quantized execution + deterministic behavior`
+
+```typescript
+// Deterministic simulation framework
+interface DeterministicSimulator {
+  // All randomness flows through seeded RNG
+  rng: SeededRNG
+
+  // Time is simulated, not real
+  clock: SimulatedClock
+
+  // Network is simulated with controllable faults
+  network: SimulatedNetwork
+
+  // Storage is simulated with crash/recovery
+  storage: SimulatedStorage
+}
+
+function runDeterministicSimulation(
+  seed: number,
+  scenario: Scenario,
+  faults: FaultInjector
+): SimulationResult {
+  const sim = createSimulator(seed)
+
+  for (const event of scenario.events) {
+    // Inject faults at deterministic points
+    if (faults.shouldInjectAt(sim.clock.now())) {
+      faults.inject(sim)
+    }
+
+    // Execute event
+    sim.execute(event)
+
+    // Check invariants
+    if (!checkInvariants(sim.state)) {
+      return { failed: true, seed, step: sim.stepCount }
+    }
+  }
+
+  return { failed: false, seed }
+}
+
+// Key: same seed = exact same execution
+const result1 = runDeterministicSimulation(42, scenario, faults)
+const result2 = runDeterministicSimulation(42, scenario, faults)
+assert(deepEqual(result1, result2)) // Always true
+```
+
+**Datadog's layered approach**: They combined three techniques:
+
+1. **TLA+ (5.5M states)**: Verified correctness properties exhaustively
+2. **SimPy simulations**: Quantified performance under failure
+3. **Chaos testing**: Validated simulation predictions against reality
+
+#### 10.11.4 Counterexample Minimization
+
+When a test fails with a 50-step trace, debugging is painful. Delta debugging systematically shrinks it:
+
+```typescript
+// Delta debugging for trace minimization
+function minimizeCounterexample(
+  trace: Operation[],
+  stillFails: (t: Operation[]) => boolean
+): Operation[] {
+  if (trace.length <= 1) return trace
+
+  // Try removing halves
+  const mid = Math.floor(trace.length / 2)
+  const firstHalf = trace.slice(0, mid)
+  const secondHalf = trace.slice(mid)
+
+  // Try each half
+  if (stillFails(firstHalf)) {
+    return minimizeCounterexample(firstHalf, stillFails)
+  }
+  if (stillFails(secondHalf)) {
+    return minimizeCounterexample(secondHalf, stillFails)
+  }
+
+  // Neither half alone fails - try removing individual elements
+  for (let i = 0; i < trace.length; i++) {
+    const without = [...trace.slice(0, i), ...trace.slice(i + 1)]
+    if (stillFails(without)) {
+      return minimizeCounterexample(without, stillFails)
+    }
+  }
+
+  // Can't shrink further
+  return trace
+}
+
+// Usage
+const minimalTrace = minimizeCounterexample(failingTrace, (t) => {
+  try {
+    executeAndVerify(t)
+    return false // Didn't fail
+  } catch {
+    return true // Still fails
+  }
+})
+
+console.log(
+  `Reduced from ${failingTrace.length} to ${minimalTrace.length} steps`
+)
+```
+
+#### 10.11.5 The Spec-Implementation Gap
+
+Amazon acknowledged a critical limitation: they don't verify that code correctly implements specs. TLA+ catches design flaws, not implementation bugs.
+
+**Implications for your DSL**:
+
+1. **Conformance tests bridge the gap**: Your `conformance.test.ts` tests real implementations against the spec
+2. **Refinement checking helps**: Your `refinement.test.ts` verifies implementations match reference
+3. **But there's always a gap**: The spec is a model, not the code
+
+```typescript
+// The verification pyramid
+//
+//     ┌─────────────────┐
+//     │   TLA+/Spec     │  ← Design correctness
+//     │   (SPEC.md)     │
+//     └────────┬────────┘
+//              │ refinement
+//     ┌────────▼────────┐
+//     │ Reference Impl  │  ← Executable oracle
+//     │   (MapStore)    │
+//     └────────┬────────┘
+//              │ conformance
+//     ┌────────▼────────┐
+//     │  Production     │  ← Real implementation
+//     │  (StreamStore)  │
+//     └─────────────────┘
+//
+// Each layer can have bugs not caught by the layer above
+```
+
+**Reference**: [How Amazon Web Services Uses Formal Methods (2015)](https://cacm.acm.org/research/how-amazon-web-services-uses-formal-methods/)
+
+---
+
+## Part 11: Choosing Your Specification Style
+
+There are stable "spec shapes," and picking one early prevents later pain.
+
+### 11.1 Operational Spec (State Machine / Interpreter)
+
+**Shape**: An executable model that steps through states.
+
+```typescript
+function interpret(state: State, command: Command): State {
+  switch (command.type) {
+    case "assign":
+      return { ...state, [command.key]: command.value }
+    case "increment":
+      return {
+        ...state,
+        [command.key]: (state[command.key] ?? 0) + command.delta,
+      }
+    case "delete":
+      const { [command.key]: _, ...rest } = state
+      return rest
+  }
+}
+```
+
+**Pros**: Easy to execute, easy to diff-test, natural for DSL runners.
+**Cons**: Can obscure invariants in procedural logic.
+**Best for**: Implementation reference, fuzz oracle.
+
+### 11.2 Axiomatic/Declarative Spec (Constraints on Histories)
+
+**Shape**: Properties that must hold over execution traces.
+
+```typescript
+// "Snapshot isolation" as a constraint on histories
+function satisfiesSnapshotIsolation(history: History): boolean {
+  // No write-write conflicts between concurrent transactions
+  for (const t1 of history.transactions) {
+    for (const t2 of history.transactions) {
+      if (t1.id !== t2.id && overlap(t1, t2)) {
+        if (writeConflict(t1, t2)) return false
+      }
+    }
+  }
+  // Each transaction's reads are consistent with some snapshot
+  for (const txn of history.transactions) {
+    if (!readsFromConsistentSnapshot(txn, history)) return false
+  }
+  return true
+}
+```
+
+**Pros**: Natural for isolation/consistency; matches Adya/Elle style.
+**Cons**: Harder to execute directly; often needs solvers for checking.
+**Best for**: Consistency model verification, anomaly detection.
+
+### 11.3 Algebraic/Equational Spec (Laws of Operators)
+
+**Shape**: Equations that operators must satisfy.
+
+```typescript
+// Merge forms a semilattice
+const mergeLaws = {
+  commutativity: (a, b) => equal(merge(a, b), merge(b, a)),
+  associativity: (a, b, c) =>
+    equal(merge(merge(a, b), c), merge(a, merge(b, c))),
+  idempotence: (a) => equal(merge(a, a), a), // For applicable types
+}
+
+// Apply effect is monotonic
+const applyLaws = {
+  identity: (v) => equal(apply(v, BOTTOM), v),
+  composition: (v, e1, e2) =>
+    equal(apply(apply(v, e1), e2), apply(v, compose(e1, e2))),
+}
+```
+
+**Pros**: Perfect for CRDT-ish merge/effect algebras; enables algebraic property testing.
+**Cons**: Not all systems have clean algebraic structure.
+**Best for**: Merge semantics, effect composition, conflict resolution.
+
+### 11.4 Hybrid Approaches
+
+Mature systems usually need _more than one_ spec style, connected by refinement/simulation arguments. That's the seL4 lesson: multiple abstraction layers, each with its own spec style, with proofs that adjacent layers refine correctly.
+
+For your transactional store DSL:
+
+| Component          | Best Spec Style | Why                                       |
+| ------------------ | --------------- | ----------------------------------------- |
+| Effect application | Algebraic       | Clean equations for merge, apply, compose |
+| Transaction model  | Operational     | State machine semantics                   |
+| Isolation checking | Axiomatic       | Constraints over histories (Adya-style)   |
+| Store interface    | Operational     | Reference implementation for diff-testing |
+
+---
+
+## Part 12: Case Study - Applying This Guide to Itself
+
+We applied the techniques in this guide to the `txn-spec` DSL itself. This section documents what we learned—both validations of the approach and surprises.
+
+### 12.1 Exhaustive Testing Found a Real Spec/Implementation Gap
+
+**Technique used**: Small-scope exhaustive testing (Section 10.7)
+
+We wrote exhaustive boundary tests for the visibility rule (OTSP):
+
+```typescript
+// Test ALL combinations of commitTs and snapshotTs from 0-5
+for (let commitTs = 1; commitTs <= 5; commitTs++) {
+  for (let snapshotTs = 0; snapshotTs <= 5; snapshotTs++) {
+    const shouldSee = snapshotTs > commitTs // What we discovered
+
+    it(`commit@${commitTs} ${shouldSee ? "visible" : "invisible"} at snapshot@${snapshotTs}`, () => {
+      const s = scenario("boundary")
+        .transaction("writer", { st: 0 })
+        .update("x", assign(100))
+        .commit({ ct: commitTs })
+        .transaction("reader", { st: snapshotTs })
+        .readExpect("x", shouldSee ? 100 : BOTTOM)
+        .commit({ ct: 10 })
+        .build()
+
+      expect(executeScenario(s, createMapStore()).success).toBe(true)
+    })
+  }
+}
+```
+
+**What we found**: The spec said `T1.commitTs ≤ T2.snapshotTs` for visibility, but the implementation uses strict `<`. A transaction at `snapshotTs=5` does NOT see commits at `commitTs=5`.
+
+This is exactly the kind of boundary bug that's invisible to random fuzzing (low probability of hitting exact boundaries) but obvious to exhaustive enumeration. The small-scope hypothesis paid off.
+
+**Lesson**: Fuzz testing alone isn't enough. Add exhaustive coverage for small scopes, especially around boundary conditions.
+
+### 12.2 Two-Tier DSL Pattern in Practice
+
+**Technique used**: Two-tier language design (Section 2.4)
+
+We implemented both tiers:
+
+**Tier 1 (Typed Builder)** - for well-formed scenarios:
+
+```typescript
+// The builder prevents nonsense at compile time
+scenario("normal-operation")
+  .transaction("t1", { st: 0 })
+  .update("x", assign(10))
+  .commit({ ct: 5 }) // Can only commit an active transaction
+  .build()
+```
+
+**Tier 2 (Raw Events)** - for adversarial testing:
+
+```typescript
+// Direct event injection bypasses all safety checks
+function executeRawEvents(events: RawEvent[]): {
+  success: boolean
+  error?: Error
+  results: unknown[]
+} {
+  const coordinator = createTransactionCoordinator(store, tsGen)
+  for (const event of events) {
+    switch (event.type) {
+      case "begin":
+        coordinator.begin(event.txnId, { st: event.snapshotTs ?? 0 })
+        break
+      case "commit":
+        coordinator.commit(event.txnId, { ct: event.commitTs ?? 100 })
+        break
+      // ... etc
+    }
+  }
+}
+
+// Now we can test malformed sequences
+const result = executeRawEvents([
+  { type: "begin", txnId: "t1", snapshotTs: 0 },
+  { type: "commit", txnId: "t1", commitTs: 5 },
+  { type: "commit", txnId: "t1", commitTs: 10 }, // Double commit!
+])
+expect(result.success).toBe(false)
+expect(result.error?.message).toMatch(/not running|already|committed/i)
+```
+
+**What we tested with Tier 2**:
+
+- Double commits (C2 violation)
+- Operations after commit/abort (C3 violation)
+- Operations on non-existent transactions
+- Duplicate transaction IDs
+
+**Lesson**: The typed builder made it _impossible_ to accidentally write these malformed cases in normal tests. We needed a separate escape hatch to test error handling. Keep both tiers explicit.
+
+### 12.3 Bidirectional Enforcement Checklist
+
+**Technique used**: Spec shape awareness (Part 11) + enforcement tracking
+
+We created a bidirectional checklist in SPEC.md:
+
+**Doc → Code**: Is each invariant actually enforced?
+
+| Invariant              | Types         | Runtime          | Tests         |
+| ---------------------- | ------------- | ---------------- | ------------- |
+| I1: Snapshot Isolation | -             | ✓ Store lookup   | ✓ conformance |
+| I5: Effect Composition | ✓ Effect type | ✓ composeEffects | ✓ algebraic   |
+| I6: Effect Merge       | -             | ✓ mergeEffects   | ✓ algebraic   |
+| I8: OTSP Visibility    | -             | ✓ Store lookup   | ✓ exhaustive  |
+
+**Code → Doc**: Is each test derived from spec?
+
+| Test File                | Spec Section            | Coverage            |
+| ------------------------ | ----------------------- | ------------------- |
+| conformance.test.ts      | Affordances, Invariants | Core behavior       |
+| merge-properties.test.ts | I6 (CAI properties)     | 203 algebraic laws  |
+| exhaustive.test.ts       | I8 boundary             | All timestamp pairs |
+| adversarial.test.ts      | Constraints C2, C3      | Error handling      |
+
+**Gaps identified**:
+
+| Gap                | Status     | Action Taken                 |
+| ------------------ | ---------- | ---------------------------- |
+| C4 (numeric check) | Not tested | Added to adversarial.test.ts |
+| Adversarial inputs | Not tested | Created adversarial.test.ts  |
+
+**Lesson**: The checklist revealed that "adversarial inputs" was listed as a gap. This directly motivated creating the Tier 2 DSL. Bidirectional verification isn't just bookkeeping—it drives development.
+
+### 12.4 Refinement Checking Between Implementations
+
+**Technique used**: Refinement proofs (Section 10.8), adapted to testing
+
+We have two store implementations: `MapStore` (simple reference) and `StreamStore` (optimized). We verify they're equivalent:
+
+```typescript
+function checkRefinement(
+  referenceFactory: () => StoreInterface,
+  implementationFactory: () => StoreInterface,
+  operations: Operation[]
+): RefinementResult {
+  const refStore = referenceFactory()
+  const implStore = implementationFactory()
+  const refCoord = createTransactionCoordinator(refStore, tsGen())
+  const implCoord = createTransactionCoordinator(implStore, tsGen())
+
+  for (let i = 0; i < operations.length; i++) {
+    const op = operations[i]
+
+    // Execute on both
+    executeOp(refCoord, op)
+    executeOp(implCoord, op)
+
+    // After each commit, check refinement
+    if (op.type === "commit") {
+      const refSnapshot = getStoreSnapshot(refStore, allKeys, maxTs)
+      const implSnapshot = getStoreSnapshot(implStore, allKeys, maxTs)
+
+      if (!snapshotsEqual(refSnapshot, implSnapshot)) {
+        return {
+          valid: false,
+          failingStep: i,
+          failingOperation: `${op.type}(${op.txnId})`,
+        }
+      }
+    }
+  }
+  return { valid: true }
+}
+```
+
+**Key insight**: Refinement checking gives you _localization_. When a test fails, you know exactly which step diverged. This is vastly better than "final state doesn't match."
+
+We run this against fuzz-generated scenarios:
+
+```typescript
+for (const seed of [100, 200, 300, 400, 500]) {
+  it(`random scenario (seed=${seed}) refines correctly`, () => {
+    const scenario = generateRandomScenario({ seed, transactionCount: 5 })
+    const result = checkRefinement(
+      createMapStore,
+      createStreamStore,
+      scenario.operations
+    )
+    expect(result.valid).toBe(true)
+  })
+}
+```
+
+**Lesson**: Refinement checking is the testing analog of refinement proofs. If you have a "reference implementation" and an "optimized implementation," check them step-by-step, not just at the end.
+
+### 12.5 Checker Metadata with Soundness/Completeness Labels
+
+**Technique used**: Soundness vs completeness labeling (Section 5.5)
+
+We added explicit metadata to our consistency checkers:
+
+```typescript
+export interface CheckerMetadata {
+  name: string
+  soundness: "sound" | "unsound"
+  completeness: "complete" | "incomplete"
+  scope: string
+  limitations: string[]
+}
+
+export const SERIALIZABILITY_CHECKER: CheckerMetadata = {
+  name: "Cycle-based Serializability",
+  soundness: "sound",
+  completeness: "incomplete",
+  scope: "Single-key read/write operations with known commit order",
+  limitations: [
+    "Predicate-based anomalies (e.g., phantom reads)",
+    "Multi-key constraints",
+    "Operations without explicit read/write logging",
+  ],
+}
+```
+
+The formatted output now includes these labels:
+
+```
+Checker: Cycle-based Serializability
+  Soundness: sound
+  Completeness: incomplete
+  Scope: Single-key read/write operations with known commit order
+
+INVALID: Consistency violation detected
+  Type: cycle
+  Cycle: t1 -> t2 -> t1
+  ...
+
+Note: This checker has limitations:
+  - Predicate-based anomalies (e.g., phantom reads)
+  - Multi-key constraints
+```
+
+**Lesson**: Labeling checkers prevents overconfidence. When someone sees "VALID," they know exactly what was checked and what wasn't.
+
+### 12.6 Summary: What Worked
+
+| Technique                     | Section | Outcome                                  |
+| ----------------------------- | ------- | ---------------------------------------- |
+| Exhaustive small-scope        | 10.7    | Found real spec/impl boundary bug        |
+| Two-tier DSL                  | 2.4     | Clean separation of valid vs adversarial |
+| Bidirectional checklist       | 11.4    | Revealed gaps, drove test creation       |
+| Refinement checking           | 10.8    | Step-by-step equivalence verification    |
+| Soundness/completeness labels | 5.5     | Clear checker guarantees                 |
+
+**Meta-lesson**: These techniques are synergistic. The checklist identified gaps → we built adversarial DSL → we ran exhaustive tests → we found a real bug → we fixed the spec. Each technique fed the next.
+
+### 12.7 Case Study: Webhook Testing DSL
+
+A team implementing a webhook delivery protocol used this guide to build their testing DSL. Their reflections validate core ideas and reveal gaps—particularly around async/concurrent systems.
+
+#### What Worked: History-Based Verification Was "Transformative"
+
+> "The single most impactful idea was recording every observable event into an ordered trace and then running invariant checkers over the complete history. Before this, each test was a bespoke imperative script—assert this status code, check that header, verify this field. After adopting history-based verification, the safety invariants run automatically on every scenario."
+
+Their safety invariants (epoch monotonicity, wake_id uniqueness, single claim, token rotation, signature verification) caught a real bug that individual assertions would have missed:
+
+> "The epoch confusion bug where responding to an old webhook after a done callback caused the server to retry stale payloads."
+
+**Key insight**: Once invariant checkers run automatically, the testing question shifts from "did I assert enough?" to "do my scenarios visit enough states for the invariants to be meaningful?"
+
+#### What Worked: Two-Tier Design Was "Essential, Not Optional"
+
+> "Tier 1 (the fluent builder) makes happy-path tests readable and concise... But the adversarial tests for epoch fencing, token attacks, and malformed requests needed to break the builder's invariants. Forcing those through the builder would have made it either unsafe or unusable. The raw `callCallback` escape hatch was the right answer."
+
+Their builder achieved remarkable compression:
+
+```typescript
+// Before: ~40 lines of imperative fetch/assert code
+// After: ~8 lines of declarative scenario description
+
+webhook(url)
+  .subscription("/agents/*", "sub-1")
+  .stream(primary)
+  .append({ event: "hello" })
+  .expectWake()
+  .claimWake()
+  .ack(primary)
+  .done()
+  .run()
+```
+
+> "When you read `.append({event: "hello"}).expectWake().claimWake().ack(stream).done()`, you understand the full wake cycle without parsing HTTP mechanics."
+
+#### What Was Hard: Timing in Async Protocols
+
+> "The guide talks about DSLs in fairly synchronous terms—build steps, execute them. But webhook testing is fundamentally concurrent: the server delivers webhooks asynchronously, re-wakes can arrive before you process the first notification, and the order you respond to pending webhooks vs. send callbacks changes observable behavior."
+
+Their hardest bugs were timing-related. The "epoch confusion bug" was a DSL bug (test-side timing): when `.done()` was called with pending un-acked work, the server would schedule a re-wake. But if the test hadn't responded to the old webhook before sending the done callback, the server would retry the old payload with unexpected epoch/wake_id.
+
+**The fix** (in the DSL's `.done()` step executor):
+
+```typescript
+case `done`: {
+  // Respond to pending webhook BEFORE done callback to avoid
+  // the server scheduling retries of the old payload
+  if (ctx.notification) {
+    ctx.notification.resolve({
+      status: 200,
+      body: JSON.stringify({}),
+    })
+    ctx.notification = null
+  }
+  // ... then send done callback
+}
+```
+
+**Key insight**: "Step execution order in the DSL doesn't always match the order the system-under-test processes those steps. The DSL needs to manage response timing as a first-class concern, not just request ordering."
+
+#### The consumedCount Pattern: Never Clear, Always Index
+
+The second timing bug came from clearing notification queues. The fix: append-only with a consumption cursor.
+
+```typescript
+// BEFORE (broken — race condition):
+async waitForNotification(): Promise<WebhookNotification> {
+  // BUG: Webhook delivery can arrive BEFORE the test calls this method.
+  // If we clear/shift, we lose notifications that arrived between calls.
+  if (this.notifications.length > 0) {
+    return this.notifications.shift()!  // clearing loses late arrivals
+  }
+  // ... wait for next one
+}
+
+// AFTER (fixed — index-based consumption):
+private consumedCount = 0
+
+async waitForNotification(timeoutMs = 10_000): Promise<WebhookNotification> {
+  const targetIdx = this.consumedCount
+  this.consumedCount++
+
+  // Already arrived? Return immediately.
+  if (this.notifications.length > targetIdx) {
+    return this.notifications[targetIdx]!
+  }
+
+  // Not yet — wait for it
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(...), timeoutMs)
+    const check = () => {
+      if (this.notifications.length > targetIdx) {
+        clearTimeout(timeout)
+        resolve(this.notifications[targetIdx]!)
+      } else {
+        this.waitResolvers.push(check)
+      }
+    }
+    check()
+  })
+}
+```
+
+**The key insight**: Never clear the array, never shift. Append-only with a consumption cursor. Re-wakes can arrive before the test expects them—the cursor ensures ordering is preserved.
+
+#### What Was Hard: The "Last Mile" Problem
+
+> "The clean builder works beautifully for the common path. But protocol edge cases—like 'what happens when done() has pending work and the server re-wakes immediately'—required understanding the internal machinery."
+
+Their `.done()` step hides significant complexity. The user writes `scenario.done()`—one line. The DSL handles ordering constraints, history recording, token rotation, and timing:
+
+```typescript
+case `done`: {
+  if (!ctx.callbackUrl || !ctx.currentToken)
+    throw new Error(`No callback context`)
+
+  // 1. Respond to pending webhook FIRST (ordering matters!)
+  if (ctx.notification) {
+    ctx.notification.resolve({ status: 200, body: JSON.stringify({}) })
+    ctx.notification = null
+  }
+
+  // 2. Record to history trace (for invariant checking)
+  ctx.history.push({
+    type: `callback_sent`,
+    token: ctx.currentToken,
+    epoch: ctx.currentEpoch!,
+    done: true,
+  })
+
+  // 3. Send the actual done callback to the server
+  const result = await callCallback(ctx.callbackUrl, ctx.currentToken, {
+    epoch: ctx.currentEpoch,
+    done: true,
+  })
+
+  // 4. Rotate token if successful
+  if (result.body.ok) {
+    ctx.currentToken = result.body.token as string
+  }
+
+  // 5. Record response to history
+  ctx.history.push({ type: `callback_response`, ... })
+
+  // 6. Wait for server state transition
+  await new Promise((r) => setTimeout(r, 100))
+}
+```
+
+> "The abstraction was right (callers shouldn't worry about this), but getting the implementation right required deep protocol knowledge that the DSL was supposed to abstract away."
+
+A single `.done()` call replaces ~15 lines of carefully-ordered async code in each test.
+
+#### What Was Hard: Property-Based Testing Integration
+
+> "fast-check generating random action sequences and feeding them through the DSL builder was powerful—it found that our keepalive action was accidentally overriding the auto-injected epoch with `{ epoch: 0 }`."
+
+But challenges emerged:
+
+- **Timeouts**: Each property test runs a full HTTP scenario. 10 runs × 3 cycles needs 30s timeout.
+- **Shrinking limitations**: Scenarios have ordering dependencies—can't remove arbitrary actions.
+- **Cascading failures**: `endOnFailure: true` was essential.
+
+**Their timeout heuristic** (not yet codified, but what doesn't flake):
+
+```
+base_time + (num_wake_cycles × 600ms) + (num_actions × 150ms)
+```
+
+Then 2-3× that for the test timeout. The tightest constraints are `wait(100ms)` after done and `expectNoNotification(500ms)` in idle checks.
+
+#### New Pattern: RunContext (Mutable State Through Steps)
+
+> "Each step reads and mutates a shared context (current epoch, token, wake notification, consumer ID). This felt imperative and un-functional, but for an async protocol with stateful entities, it was exactly right."
+
+```typescript
+interface RunContext {
+  currentEpoch: number
+  token: string | null
+  pendingWake: WakeNotification | null
+  consumerId: string
+  history: HistoryEvent[]
+}
+
+// Each step receives and mutates context
+type Step = (ctx: RunContext) => Promise<void>
+```
+
+#### Summary: Webhook DSL Lessons
+
+| Guide Claim                | Validated? | Notes                                          |
+| -------------------------- | ---------- | ---------------------------------------------- |
+| History-based verification | ✓ Yes      | "Transformative" - caught epoch confusion bug  |
+| Two-tier design            | ✓ Yes      | "Essential, not optional"                      |
+| Fluent builders compress   | ✓ Yes      | 40 lines → 8 lines                             |
+| DSL = documentation        | ✓ Yes      | "Better than the spec itself"                  |
+| Works for async protocols  | ⚠ Partial  | Needs timing/ordering as first-class concern   |
+| Property-based integration | ⚠ Partial  | Powerful but sharp edges (timeouts, shrinking) |
+
+### 12.8 Case Study: Stream-FS (Shared Filesystem for AI Agents)
+
+A team building a shared filesystem abstraction for AI agents on top of Durable Streams applied the guide's recommendations. Their results: **95 → 425 tests**, **3+ bugs caught**, and a formal specification that serves as documentation.
+
+#### What They Built
+
+| Component           | Guide Concept          | Implementation                                                |
+| ------------------- | ---------------------- | ------------------------------------------------------------- |
+| SPEC.md             | Formal specification   | 11 invariants (I1-I11), 10 constraints (C1-C10)               |
+| scenario-builder.ts | Fluent DSL             | `scenario("name").createFile(...).expectContent(...).run(fs)` |
+| invariants.ts       | Invariant checkers     | Functions verifying structural properties on any snapshot     |
+| random.ts           | Seeded RNG             | LCG-based `SeededRandom` for reproducible fuzz tests          |
+| fuzz.test.ts        | Property-based testing | Random operation sequences verified against invariants        |
+| path-properties.ts  | Algebraic properties   | Idempotence, canonical form tests for path normalization      |
+| patch-properties.ts | Roundtrip properties   | `apply(diff(a,b), a) === b` for 100+ random text pairs        |
+| multi-agent.test.ts | Concurrency testing    | 2-10 agent convergence scenarios                              |
+| adversarial.test.ts | Tier-2 DSL             | Raw event injection, constraint violation tests               |
+| exhaustive.test.ts  | Small-scope hypothesis | All 2-operation sequences, complete lifecycle coverage        |
+
+#### Bug 1: Path Normalization Edge Case
+
+**Found by**: Exhaustive small-scope testing of path operations.
+
+```typescript
+// This test failed initially
+it(`handles paths with multiple slashes`, async () => {
+  await fs.mkdir(`/double`)
+  await fs.createFile(`//double//slashes.txt`, `content`)
+  expect(fs.exists(`/double/slashes.txt`)).toBe(true)
+})
+```
+
+**Root cause**: Path was normalized for storage, but parent directory lookup happened _before_ normalization. Trivial fix once identified, but nearly impossible to find through manual testing.
+
+**Lesson**: Systematically test all path edge cases (leading slashes, double slashes, dots, parent references).
+
+#### Bug 2: Sync vs Async Method Confusion
+
+**Found by**: Building the fluent DSL forced explicit modeling of sync vs async operations.
+
+```typescript
+// BEFORE: async methods that never awaited
+async exists(path: string): Promise<boolean> {
+  return this.files.has(normalizePath(path))  // No await needed!
+}
+
+// AFTER: sync methods for read-only operations
+exists(path: string): boolean {
+  return this.files.has(normalizePath(path))
+}
+```
+
+**Root cause**: Copy-paste from async write methods. The `Promise<boolean>` return type was misleading and could cause subtle bugs in calling code.
+
+**Lesson**: The DSL forced explicit thinking about operation semantics. Building the `Step` type system required clarity on what each operation actually does.
+
+#### Bug 3: Missing Ancestor Chain Validation
+
+**Found by**: Adversarial tests for constraint C2 ("Parent Exists").
+
+```typescript
+// This should fail but didn't initially
+await fs.createFile(`/a/b/c/d/e/file.txt`, `content`)
+```
+
+**Root cause**: Validated immediate parent but not the full ancestor chain.
+
+**Lesson**: Systematic constraint testing catches validation gaps.
+
+#### What the Formal Specification Revealed
+
+Writing SPEC.md forced clarity on ambiguous behaviors:
+
+| Ambiguity               | Before                         | After (in SPEC.md)                                              |
+| ----------------------- | ------------------------------ | --------------------------------------------------------------- |
+| Delete + recreate file  | Undefined, might keep metadata | I5: New file gets fresh timestamps                              |
+| Multi-agent consistency | "Eventual consistency"         | I8: After refresh, file/directory sets identical (not content!) |
+| Patch failure semantics | "Fails if it doesn't apply"    | C10: Failure doesn't modify file; I7: Empty patch is identity   |
+
+> "Writing SPEC.md was the most valuable exercise. We originally thought content would also be identical after refresh, but that's only true if no concurrent writes happened. The spec forced us to be precise."
+
+#### Property Testing in Practice
+
+**Path normalization properties**:
+
+```typescript
+// Idempotence: normalizing twice equals normalizing once
+expect(normalizePath(normalizePath(path))).toBe(normalizePath(path))
+
+// Canonical form: result always starts with /
+expect(normalizePath(path).startsWith("/")).toBe(true)
+```
+
+Tested against 50 random paths plus edge cases. Found that `normalizePath("")` returned `""` instead of `"/"`. Fixed.
+
+**Patch roundtrip properties**:
+
+```typescript
+// Roundtrip: apply(diff(a, b), a) === b
+const patch = createPatch(original, modified)
+const result = applyPatch(original, patch)
+expect(result).toBe(modified)
+```
+
+Tested with 100 random text pairs. All passed—confidence in the diff/patch integration.
+
+#### Multi-Agent Testing: Operational Insights
+
+They tested 2, 3, 5, and 10 agent scenarios with concurrent operations.
+
+**Unexpected finding**: The 10-agent stress test revealed that test infrastructure was the bottleneck. Each agent creates its own HTTP connection, and at 10 agents × 5 operations, they saw connection pool exhaustion in CI (not in the library itself).
+
+> "This is exactly the kind of operational insight you only get from realistic concurrency testing."
+
+#### Metrics: Before and After
+
+| Metric             | Before | After      |
+| ------------------ | ------ | ---------- |
+| Test count         | 95     | 425        |
+| Test files         | 4      | 10         |
+| Lines of test code | ~800   | ~3,600     |
+| Formal invariants  | 0      | 11         |
+| Formal constraints | 0      | 10         |
+| Bugs caught        | -      | 3+         |
+| Edge cases covered | Ad-hoc | Systematic |
+
+#### What They'd Do Differently
+
+1. **Write SPEC.md first**: They wrote implementation first, then spec. The spec was partly descriptive rather than prescriptive. Next time: invariants and constraints _before_ coding.
+
+2. **Integrate fuzz testing earlier**: Fuzz tests found the path normalization bug. Running them during development would have caught it sooner. "Fuzz tests aren't just for hardening—they're for development."
+
+3. **Add mutation testing**: Deliberately breaking code to verify tests catch it. Worth the investment.
+
+#### Summary: Stream-FS Lessons
+
+| Guide Claim              | Validated? | Notes                                        |
+| ------------------------ | ---------- | -------------------------------------------- |
+| SPEC.md as documentation | ✓ Yes      | "Most valuable exercise"                     |
+| Two-tier DSL             | ✓ Yes      | Tier 1 for valid ops, Tier 2 for adversarial |
+| Exhaustive small-scope   | ✓ Yes      | Found path normalization bug                 |
+| Algebraic properties     | ✓ Yes      | Idempotence, roundtrip tests                 |
+| Seeded randomness        | ✓ Yes      | Reproducible fuzz tests                      |
+| Multi-agent concurrency  | ✓ Yes      | Found operational (not correctness) issues   |
+| Investment ratio         | ✓ Yes      | 3,600 lines test / 1,500 lines impl = 2.4x   |
+
+> "The guide's core insight—that tests should be derived from formal specifications, not just 'does this work?' checks—fundamentally changed how we approached stream-fs testing."
+
+---
+
+## Part 13: DSLs for Async and Concurrent Systems
+
+The webhook case study revealed that synchronous DSL patterns don't directly translate to async protocols. This section addresses the gap.
+
+### 13.1 The Core Problem: Execution Order ≠ Processing Order
+
+In synchronous systems, DSL step order matches system processing order:
+
+```typescript
+// Synchronous: steps execute in order, system processes in order
+scenario()
+  .write("x", 1) // System sees write first
+  .read("x") // System sees read second
+  .commit() // System sees commit third
+```
+
+In async systems, the system may process events in different order than you send them:
+
+```typescript
+// Async: steps execute in order, but system may process differently
+webhook()
+  .append(event1) // Sends append request
+  .append(event2) // Sends second append
+  .expectWake() // Server may wake for event1, event2, or both
+  .respond(200) // Which wake are we responding to?
+```
+
+### 13.2 Pattern: Response Timing as First-Class Concern
+
+Model pending notifications explicitly:
+
+```typescript
+interface AsyncContext {
+  // Pending notifications from the system (may arrive out of order)
+  pendingNotifications: Queue<Notification>
+
+  // Track which notifications we've processed
+  consumedCount: number
+
+  // Current protocol state
+  state: ProtocolState
+}
+
+// Steps that SEND requests
+function append(ctx: AsyncContext, event: Event): void {
+  sendToServer({ type: "append", event })
+  // Don't assume immediate processing
+}
+
+// Steps that WAIT for responses
+async function expectWake(ctx: AsyncContext): Promise<WakeNotification> {
+  // May need to wait for notification to arrive
+  const wake = await ctx.pendingNotifications.waitForNext()
+  return wake
+}
+
+// Steps that RESPOND to pending work
+function respondToWake(
+  ctx: AsyncContext,
+  wake: WakeNotification,
+  status: number
+): void {
+  // Explicitly respond to a specific notification
+  sendResponse(wake.requestId, status)
+  ctx.consumedCount++
+}
+```
+
+### 13.3 Pattern: The consumedCount Index
+
+Don't clear queues—track consumption:
+
+```typescript
+// WRONG: Clearing loses notifications that arrive during processing
+function processWakes(ctx: AsyncContext): void {
+  for (const wake of ctx.pendingNotifications) {
+    process(wake)
+  }
+  ctx.pendingNotifications.clear() // Race condition!
+}
+
+// RIGHT: Track index, never lose notifications
+function processWakes(ctx: AsyncContext): void {
+  while (ctx.consumedCount < ctx.pendingNotifications.length) {
+    const wake = ctx.pendingNotifications[ctx.consumedCount]
+    process(wake)
+    ctx.consumedCount++
+  }
+  // New notifications can still arrive and be processed later
+}
+```
+
+### 13.4 Pattern: Ordering-Sensitive Step Implementations
+
+When a single DSL step must orchestrate multiple protocol actions:
+
+```typescript
+// The .done() step hides significant complexity
+async function doneStep(ctx: AsyncContext): Promise<void> {
+  // 1. Respond to any pending webhooks FIRST
+  //    (Otherwise server sees us as still processing)
+  while (ctx.consumedCount < ctx.pendingNotifications.length) {
+    const pending = ctx.pendingNotifications[ctx.consumedCount]
+    await respondToWake(ctx, pending, 200)
+  }
+
+  // 2. Send the done callback
+  //    (Tells server we're finished with this batch)
+  await sendDoneCallback(ctx.token)
+
+  // 3. Check if server re-woke us during the callback
+  //    (Race window between done send and server processing)
+  await sleep(REAWAKE_WINDOW_MS)
+
+  // 4. Record history events in correct order
+  ctx.history.push({ type: "done_sent", epoch: ctx.currentEpoch })
+  if (ctx.pendingNotifications.length > ctx.consumedCount) {
+    ctx.history.push({ type: "reawake_received", epoch: ctx.currentEpoch })
+  }
+}
+```
+
+**Key principle**: Document WHY the ordering matters inside the implementation, even though the external API hides it.
+
+### 13.5 Testing Async DSLs: Timing Invariants
+
+Add invariants that check temporal ordering:
+
+```typescript
+// Safety invariant: responses must be to valid pending requests
+function S_ValidResponses(history: HistoryEvent[]): boolean {
+  const pending = new Set<string>()
+
+  for (const event of history) {
+    if (event.type === "wake_received") {
+      pending.add(event.wakeId)
+    }
+    if (event.type === "wake_responded") {
+      if (!pending.has(event.wakeId)) {
+        return false // Responded to non-existent wake!
+      }
+      pending.delete(event.wakeId)
+    }
+  }
+  return true
+}
+
+// Safety invariant: done callbacks only after all responses
+function S_DoneAfterResponses(history: HistoryEvent[]): boolean {
+  let pendingResponses = 0
+
+  for (const event of history) {
+    if (event.type === "wake_received") pendingResponses++
+    if (event.type === "wake_responded") pendingResponses--
+    if (event.type === "done_sent" && pendingResponses > 0) {
+      return false // Sent done with pending responses!
+    }
+  }
+  return true
+}
+```
+
+---
+
+## Part 14: Property-Based Testing with DSLs
+
+The webhook team's experience revealed that property-based testing is the "natural endgame" of invariant checkers, but the combination has practical challenges.
+
+### 14.1 The Pattern: Generate Actions, Not Scenarios
+
+Let fast-check generate individual actions; let the DSL compose them:
+
+```typescript
+// Define action generators
+const appendAction = fc.record({
+  type: fc.constant("append"),
+  event: fc.record({ data: fc.string() }),
+})
+
+const ackAction = fc.record({
+  type: fc.constant("ack"),
+  streamId: fc.constantFrom("primary", "secondary"),
+})
+
+const keepaliveAction = fc.record({
+  type: fc.constant("keepalive"),
+})
+
+// Generate action sequences
+const actionSequence = fc.array(
+  fc.oneof(appendAction, ackAction, keepaliveAction),
+  {
+    minLength: 1,
+    maxLength: 20,
+  }
+)
+
+// Property: all action sequences satisfy safety invariants
+fc.assert(
+  fc.asyncProperty(actionSequence, async (actions) => {
+    const ctx = createContext()
+    const builder = webhook(url).subscription(pattern, subId).stream(primary)
+
+    // Apply each action through the builder
+    for (const action of actions) {
+      builder.action(action)
+    }
+
+    const result = await builder.run()
+
+    // Universal assertion: all invariants hold
+    return allInvariantsHold(result.history)
+  })
+)
+```
+
+### 14.2 Timeout Management for I/O Properties
+
+Each property run may involve real I/O. Budget time accordingly:
+
+```typescript
+// Estimate timeout based on action count
+function estimateTimeout(actions: Action[]): number {
+  const BASE_MS = 5000 // Setup/teardown
+  const PER_ACTION_MS = 500 // Each action may involve HTTP round-trip
+  const SAFETY_MULTIPLIER = 2
+
+  return (BASE_MS + actions.length * PER_ACTION_MS) * SAFETY_MULTIPLIER
+}
+
+fc.assert(
+  fc.asyncProperty(actionSequence, async (actions) => {
+    // ... test body
+  }),
+  {
+    timeout: 60000, // Global timeout for all runs
+    numRuns: 20, // Fewer runs due to I/O cost
+    endOnFailure: true, // Stop on first failure to preserve state
+  }
+)
+```
+
+### 14.3 Shrinking Limitations in Stateful Tests
+
+Standard shrinking removes arbitrary elements, but action sequences have dependencies:
+
+```typescript
+// This sequence is minimal and valid:
+// [begin, append, commit]
+
+// Shrinking might try:
+// [begin, commit]      ← Invalid: nothing to commit
+// [append, commit]     ← Invalid: no active transaction
+// [begin, append]      ← Invalid: never completes
+
+// Solution: Custom shrinker that preserves validity
+const validActionSequence = fc
+  .array(action)
+  .filter(isValidSequence)
+  .map((seq) => {
+    // Only shrink to valid subsequences
+    return {
+      value: seq,
+      shrink: () => validSubsequences(seq),
+    }
+  })
+```
+
+Alternative: Accept limited shrinking and rely on good action labeling:
+
+```typescript
+// Label actions for better failure messages
+fc.assert(
+  fc.asyncProperty(actionSequence, async (actions) => {
+    fc.pre(isValidSequence(actions)) // Skip invalid sequences
+
+    for (const action of actions) {
+      // Label each action for failure reporting
+      fc.label(`action:${action.type}`)
+    }
+
+    return runAndCheckInvariants(actions)
+  })
+)
+```
+
+### 14.4 The endOnFailure Pattern
+
+For stateful systems, cascading failures corrupt subsequent runs:
+
+```typescript
+fc.assert(
+  fc.asyncProperty(actionSequence, async (actions) => {
+    const server = await startFreshServer() // Isolated state
+
+    try {
+      return await runTest(server, actions)
+    } finally {
+      await server.cleanup()
+    }
+  }),
+  {
+    endOnFailure: true, // CRITICAL: Stop on first failure
+    // Otherwise, server state from failed run affects subsequent runs
+  }
+)
+```
+
+### 14.5 When Shrinking Matters vs. When It Doesn't
+
+| Scenario                  | Shrinking Value | Recommendation                        |
+| ------------------------- | --------------- | ------------------------------------- |
+| Pure functions            | High            | Use default shrinking                 |
+| Independent actions       | Medium          | Use default, accept partial shrinking |
+| Dependent action sequence | Low             | Skip shrinking, use small sequences   |
+| Stateful I/O              | Very Low        | `endOnFailure: true`, manual repro    |
+
+For highly stateful tests, the failing seed is often more useful than a shrunk example:
+
+```typescript
+// Log the seed for reproduction
+fc.assert(
+  fc.asyncProperty(actionSequence, async (actions) => {
+    console.log(`Testing seed: ${fc.seed()}`)
+    return runTest(actions)
+  }),
+  {
+    seed: process.env.REPRO_SEED ? parseInt(process.env.REPRO_SEED) : undefined,
+  }
+)
+
+// Reproduce with: REPRO_SEED=12345 npm test
+```
+
+---
+
+## Part 15: DSL Implementation Patterns
+
+Practical patterns for building robust testing DSLs, based on lessons from case studies.
+
+### 15.1 Modeling Sync vs Async Operations
+
+The Stream-FS team discovered that DSLs must explicitly model operation semantics. When your system has both sync and async operations, the DSL's type system should reflect this.
+
+**The problem**: Copy-pasting async signatures onto synchronous operations creates misleading APIs:
+
+```typescript
+// BAD: Async signature for sync operation
+async exists(path: string): Promise<boolean> {
+  return this.files.has(path)  // No await needed!
+}
+
+// Calling code might do unnecessary awaits or miss errors
+```
+
+**Pattern: Separate Step types for sync vs async**
+
+```typescript
+// Sync step: returns immediately
+type SyncStep<T> = (ctx: RunContext) => T
+
+// Async step: returns promise
+type AsyncStep<T> = (ctx: RunContext) => Promise<T>
+
+// Combined step: the builder handles both
+type Step<T> = SyncStep<T> | AsyncStep<T>
+
+// DSL builder distinguishes them
+class ScenarioBuilder {
+  // Sync operations don't need await in the builder
+  expectExists(path: string): this {
+    this.steps.push((ctx) => {
+      if (!ctx.fs.exists(path)) {
+        throw new Error(`Expected ${path} to exist`)
+      }
+    })
+    return this
+  }
+
+  // Async operations are marked explicitly
+  createFile(path: string, content: string): this {
+    this.steps.push(async (ctx) => {
+      await ctx.fs.createFile(path, content)
+    })
+    return this
+  }
+
+  // Runner handles the mix
+  async run(fs: Filesystem): Promise<void> {
+    const ctx = { fs, history: [] }
+    for (const step of this.steps) {
+      const result = step(ctx)
+      if (result instanceof Promise) {
+        await result
+      }
+    }
+  }
+}
+```
+
+**Pattern: Audit via type system**
+
+Force explicit classification during DSL design:
+
+```typescript
+interface OperationClassification {
+  sync: {
+    exists: (path: string) => boolean
+    readFile: (path: string) => string
+    listDir: (path: string) => string[]
+  }
+  async: {
+    createFile: (path: string, content: string) => Promise<void>
+    deleteFile: (path: string) => Promise<void>
+    mkdir: (path: string) => Promise<void>
+  }
+}
+
+// The classification itself documents the semantics
+```
+
+### 15.2 Snapshot Comparison Strategies
+
+Comparing system states across test runs requires careful handling of non-deterministic fields.
+
+**Common pitfalls**:
+
+1. **Floating-point timestamps**: `Date.now()` returns integers, but some systems use floats
+2. **Non-deterministic ordering**: Maps/Sets may iterate in different orders
+3. **Generated IDs**: UUIDs, auto-increment IDs differ between runs
+4. **Metadata noise**: Created-by, version numbers, etc.
+
+**Pattern: Projection before comparison**
+
+Strip non-deterministic fields before comparing:
+
+```typescript
+interface FileSnapshot {
+  path: string
+  content: string
+  size: number
+  mtime: number // Non-deterministic
+  ctime: number // Non-deterministic
+  id: string // Non-deterministic
+}
+
+function projectForComparison(snapshot: FileSnapshot): ComparableSnapshot {
+  return {
+    path: snapshot.path,
+    content: snapshot.content,
+    size: snapshot.size,
+    // Omit mtime, ctime, id
+  }
+}
+
+function snapshotsEqual(a: FileSnapshot[], b: FileSnapshot[]): boolean {
+  const projA = a.map(projectForComparison)
+  const projB = b.map(projectForComparison)
+
+  // Sort for deterministic comparison
+  projA.sort((x, y) => x.path.localeCompare(y.path))
+  projB.sort((x, y) => x.path.localeCompare(y.path))
+
+  return JSON.stringify(projA) === JSON.stringify(projB)
+}
+```
+
+**Pattern: Relative timestamp comparison**
+
+When timestamps matter but absolute values don't:
+
+```typescript
+function timestampsConsistent(snapshots: FileSnapshot[]): boolean {
+  // Check relative ordering, not absolute values
+  for (const file of snapshots) {
+    if (file.mtime < file.ctime) {
+      return false // Modified before created? Invalid.
+    }
+  }
+
+  // Check monotonicity across operations
+  const sorted = [...snapshots].sort((a, b) => a.ctime - b.ctime)
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].ctime < sorted[i - 1].ctime) {
+      return false // Time went backwards
+    }
+  }
+
+  return true
+}
+```
+
+**Pattern: Canonical forms for ordering**
+
+Convert to deterministic representation:
+
+```typescript
+function canonicalizeSnapshot(snapshot: Map<string, any>): string {
+  // Sort keys, stringify values deterministically
+  const entries = [...snapshot.entries()].sort(([a], [b]) => a.localeCompare(b))
+
+  return JSON.stringify(entries.map(([k, v]) => [k, canonicalizeValue(v)]))
+}
+
+function canonicalizeValue(v: any): any {
+  if (Array.isArray(v)) {
+    return [...v].sort().map(canonicalizeValue)
+  }
+  if (v && typeof v === "object") {
+    return canonicalizeSnapshot(new Map(Object.entries(v)))
+  }
+  return v
+}
+```
+
+### 15.3 Test Performance at Scale
+
+The Stream-FS team ran 425 tests in ~4 seconds. As test suites grow, performance becomes critical.
+
+**Baseline metrics to track**:
+
+| Metric              | Target      | Red Flag    |
+| ------------------- | ----------- | ----------- |
+| Total suite time    | < 30s       | > 2 min     |
+| Per-test average    | < 100ms     | > 500ms     |
+| Setup/teardown      | < 20% total | > 50% total |
+| Parallel efficiency | > 80%       | < 50%       |
+
+**Pattern: Tiered test execution**
+
+Run different test categories at different frequencies:
+
+```typescript
+// vitest.config.ts
+export default {
+  test: {
+    // Fast tests: run always
+    include: ["test/unit/**/*.test.ts", "test/properties/**/*.test.ts"],
+
+    // Slow tests: run in CI only
+    ...(process.env.CI && {
+      include: [
+        "test/unit/**/*.test.ts",
+        "test/properties/**/*.test.ts",
+        "test/exhaustive/**/*.test.ts", // Slower
+        "test/multi-agent/**/*.test.ts", // Much slower
+      ],
+    }),
+  },
+}
+```
+
+**Pattern: Shared fixtures with isolation**
+
+Create expensive resources once, but ensure test isolation:
+
+```typescript
+// Shared server instance (created once)
+let sharedServer: Server | null = null
+
+beforeAll(async () => {
+  sharedServer = await startServer()
+})
+
+afterAll(async () => {
+  await sharedServer?.stop()
+})
+
+// Per-test isolation via namespacing
+beforeEach((ctx) => {
+  // Each test gets its own namespace
+  ctx.namespace = `test-${randomId()}`
+})
+
+afterEach(async (ctx) => {
+  // Clean up only this test's data
+  await sharedServer?.cleanup(ctx.namespace)
+})
+```
+
+**Pattern: Parallel test design**
+
+Ensure tests can run concurrently without interference:
+
+```typescript
+// BAD: Tests share global state
+let globalCounter = 0
+it("increments counter", () => {
+  globalCounter++
+  expect(globalCounter).toBe(1) // Flaky if parallel!
+})
+
+// GOOD: Tests use isolated state
+it("increments counter", () => {
+  const counter = createCounter()
+  counter.increment()
+  expect(counter.value).toBe(1) // Always passes
+})
+```
+
+**Pattern: Connection pooling for multi-agent tests**
+
+The Stream-FS team hit connection pool exhaustion at 10 agents:
+
+```typescript
+// Configure connection limits for tests
+const testHttpAgent = new http.Agent({
+  maxSockets: 50, // Increase from default 5
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+})
+
+// Share agent across test clients
+function createTestClient(agentId: string): Client {
+  return new Client({
+    baseUrl: testServer.url,
+    httpAgent: testHttpAgent, // Shared pool
+    namespace: `agent-${agentId}`,
+  })
+}
+```
+
+**Pattern: Profile before optimizing**
+
+Identify actual bottlenecks:
+
+```typescript
+// Add timing to test setup
+beforeEach(async (ctx) => {
+  const start = performance.now()
+  ctx.fs = await createTestFilesystem()
+  const setup = performance.now() - start
+
+  if (setup > 100) {
+    console.warn(`Slow setup (${setup.toFixed(0)}ms): ${ctx.task.name}`)
+  }
+})
+
+// Aggregate in CI
+afterAll(() => {
+  console.log("Test timing summary:")
+  console.log(`  Slowest setup: ${stats.maxSetup}ms`)
+  console.log(`  Slowest test: ${stats.maxTest}ms`)
+  console.log(
+    `  Total time in setup: ${stats.totalSetup}ms (${stats.setupPercent}%)`
+  )
+})
+```
+
+### 15.4 Mutation Testing for Test Quality
+
+The Stream-FS team mentioned skipping mutation testing. Here's how to add it:
+
+**What is mutation testing?** Deliberately introduce bugs (mutations) into your code and verify that tests catch them. If a mutation survives (tests still pass), you have a coverage gap.
+
+```typescript
+// Original code
+function isValidPath(path: string): boolean {
+  return path.startsWith("/") && !path.includes("..")
+}
+
+// Mutation 1: Change && to ||
+function isValidPath(path: string): boolean {
+  return path.startsWith("/") || !path.includes("..") // MUTANT
+}
+
+// Mutation 2: Negate condition
+function isValidPath(path: string): boolean {
+  return !path.startsWith("/") && !path.includes("..") // MUTANT
+}
+
+// If your tests pass with either mutation, they're incomplete
+```
+
+**Tools**: Use Stryker (JavaScript/TypeScript) for automated mutation testing:
+
+```bash
+npx stryker run
+```
+
+**Focus mutation testing on**:
+
+1. Boundary conditions (`<` vs `<=`, `>` vs `>=`)
+2. Boolean logic (&&, ||, !)
+3. Null/undefined checks
+4. Error handling paths
+
+---
+
+## Conclusion
+
+Building a testing DSL for complex systems is an investment that pays dividends:
+
+1. **Correctness confidence**: Property tests + fuzz tests + multi-implementation tests catch bugs that unit tests miss
+
+2. **Living documentation**: The DSL serves as executable specification
+
+3. **Regression prevention**: New implementations must pass the same conformance suite
+
+4. **Faster debugging**: Minimal failing cases and clear semantics speed root cause analysis
+
+The key insight: **Testing complex systems is itself a complex system**. Treat your test infrastructure with the same rigor as production code.
+
+---
+
+## References
+
+### Testing Tools & Frameworks
+
+- [Jepsen](https://jepsen.io) - Distributed systems testing
+- [Elle](https://github.com/jepsen-io/elle) - Black-box transactional consistency checker
+- [QuickCheck](https://hackage.haskell.org/package/QuickCheck) - Property-based testing origin
+- [Hypothesis](https://hypothesis.readthedocs.io/) - Python property-based testing
+- [Hermitage](https://github.com/ept/hermitage) - Testing transaction isolation levels
+- [Delta Debugging](https://www.cs.purdue.edu/homes/xyzhang/fall07/Papers/delta-debugging.pdf) - Simplifying failure-inducing input
+
+### Formal Specification Languages
+
+- [TLA+](https://lamport.azurewebsites.net/tla/tla.html) - Formal specification language
+- [Alloy](https://alloytools.org/) - Relational logic modeling
+- CobbleDB Paper: "Formalising Transactional Storage Systems" - Formal transactional storage specification (ASPLOS '23)
+
+### Foundational Papers
+
+- [Hoare, "An Axiomatic Basis for Computer Programming" (1969)](https://dl.acm.org/doi/10.1145/363235.363259)
+- [Dijkstra, "Guarded Commands" (1975)](https://dl.acm.org/doi/10.1145/360933.360975)
+- [Cousot & Cousot, "Abstract Interpretation" (1977)](https://www.di.ens.fr/~cousot/publications.www/CousotCousot-POPL-77-ACM-p238--252-1977.pdf)
+- [Pnueli, "Temporal Logic of Programs" (1977)](https://amturing.acm.org/bib/pnueli_4725172.cfm)
+
+### Verification Techniques
+
+- [Clarke, Emerson, Sifakis, "Model Checking" (2007 Turing Award)](https://www-verimag.imag.fr/~sifakis/TuringAwardPaper-Apr14.pdf)
+- [Bounded Model Checking (CMU)](https://www.cs.cmu.edu/~emc/papers/Books%20and%20Edited%20Volumes/Bounded%20Model%20Checking.pdf)
+- [CEGAR (Stanford)](https://web.stanford.edu/class/cs357/cegar.pdf)
+- [Testing for Linearizability (Lowe)](https://www.cs.ox.ac.uk/people/gavin.lowe/LinearizabiltyTesting/paper.pdf)
+
+### Industrial Applications
+
+- [How Amazon Web Services Uses Formal Methods (2015)](https://dl.acm.org/doi/10.1145/2699417)
+- [Cobra: Verifiably Serializable KV Stores (OSDI '20)](https://www.usenix.org/conference/osdi20/presentation/tan)
+- [seL4: Formal Verification of an OS Kernel (2009)](https://read.seas.harvard.edu/~kohler/class/cs260r-17/klein10sel4.pdf)
+- [CompCert: Formal Verification of a Realistic Compiler (2009)](https://xavierleroy.org/publi/compcert-CACM.pdf)
+- [Jackson, "Alloy" (2019)](https://groups.csail.mit.edu/sdg/pubs/2019/alloy-cacm-18-feb-22-2019.pdf)
+
+### Consistency & Isolation
+
+- [Adya, "Weak Consistency" (MIT TR-786)](https://publications.csail.mit.edu/lcs/pubs/pdf/MIT-LCS-TR-786.pdf)
+- [A Critique of ANSI SQL Isolation Levels](https://arxiv.org/abs/cs/0701157)
+- [Elle: Inferring Isolation Anomalies (VLDB '20)](https://www.vldb.org/pvldb/vol14/p268-alvaro.pdf)
