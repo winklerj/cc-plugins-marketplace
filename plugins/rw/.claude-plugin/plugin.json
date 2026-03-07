@@ -1,7 +1,7 @@
 {
   "name": "rw",
   "version": "1.0.0",
-  "description": "Learning experiments for prevalidating assumptions, comparing approaches, and guarding against regressions.",
+  "description": "Learning experiments and codebase documentation tools. Includes prevalidating assumptions, comparing approaches, guarding against regressions, and generating Diataxis-based documentation.",
   "author": {
     "name": "Robb Winkle",
     "email": "robb@devfit.com"
@@ -14,7 +14,9 @@
     "comparison",
     "validation",
     "benchmark",
-    "prevalidation"
+    "prevalidation",
+    "documentation",
+    "diataxis"
   ],
   "skills": "./skills/"
 }
