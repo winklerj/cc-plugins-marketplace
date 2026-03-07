@@ -69,9 +69,9 @@
       }
     },
     {
-      "name": "agent-tools",
+      "name": "rw",
       "source": "./plugins/rw",
-      "description": "Learning experiments for prevalidating assumptions, comparing approaches, and guarding against regressions",
+      "description": "Learning experiments and codebase documentation tools. Includes prevalidating assumptions, comparing approaches, guarding against regressions, and generating Diataxis-based documentation",
       "version": "1.0.0",
       "author": {
         "name": "Robb Winkle"
