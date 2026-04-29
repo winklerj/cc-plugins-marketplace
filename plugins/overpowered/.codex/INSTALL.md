@@ -10,7 +10,7 @@ Enable overpowered skills in Codex via native skill discovery. Just clone and sy
 
 1. **Clone the overpowered repository:**
    ```bash
-   git clone https://github.com/winklerj/cc-plugin-marketplace.git ~/.codex/overpowered
+   git clone https://github.com/winklerj/cc-plugins-marketplace.git ~/.codex/overpowered
    ```
 
 2. **Create the skills symlink:**
