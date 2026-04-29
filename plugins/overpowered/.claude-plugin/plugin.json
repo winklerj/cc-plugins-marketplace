@@ -1,0 +1,19 @@
+{
+  "name": "overpowered",
+  "version": "1.0.0",
+  "description": "Core agentic development skills library for Claude Code",
+  "author": {
+    "name": "Robb Winkle",
+    "email": "robb@devfit.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "skills",
+    "workflows",
+    "development",
+    "debugging",
+    "collaboration",
+    "best-practices"
+  ],
+  "skills": "./skills/"
+}

@@ -76,6 +76,15 @@
       "author": {
         "name": "Robb Winkle"
       }
+    },
+    {
+      "name": "overpowered",
+      "source": "./plugins/overpowered",
+      "description": "Core agentic development skills library for Claude Code",
+      "version": "1.0.0",
+      "author": {
+        "name": "Robb Winkle"
+      }
     }
   ]
 }
