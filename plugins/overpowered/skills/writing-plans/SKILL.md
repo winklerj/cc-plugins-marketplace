@@ -145,7 +145,7 @@ After saving the plan, offer execution choice:
 
 **If Subagent-Driven chosen:**
 - **REQUIRED SUB-SKILL:** Use overpowered:subagent-driven-development
-- Fresh subagent per task + two-stage review
+- Fresh subagent/agent per task + two-stage review
 
 **If Inline Execution chosen:**
 - **REQUIRED SUB-SKILL:** Use overpowered:executing-plans

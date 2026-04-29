@@ -11,7 +11,7 @@ You delegate tasks to specialized agents with isolated context. By precisely cra
 
 When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
 
-**Core principle:** Dispatch one agent per independent problem domain. Let them work concurrently.
+**Core principle:** Dispatch one agent per independent problem domain using HTN planning. Let them work concurrently.
 
 ## When to Use
 
@@ -55,7 +55,7 @@ Group failures by what's broken:
 
 Each domain is independent - fixing tool approval doesn't affect abort tests.
 
-### 2. Create Focused Agent Tasks
+### 2. Create Focused Agent Tasks using HTN
 
 Each agent gets:
 - **Specific scope:** One test file or subsystem
