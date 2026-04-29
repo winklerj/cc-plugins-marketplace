@@ -34,6 +34,7 @@ Clarify with the user if any of these are missing:
 - **What inputs should be used?** (real files, database records, API responses)
 - **What metrics matter?** (accuracy, speed, memory, precision/recall, output quality)
 - **What is the decision threshold?** (e.g., "Approach B must be >= Approach A on F1")
+- **Are there visual, UI, UX, or display aspects to the experiment** use Visual Companion
 
 Do not proceed until you have answers for all four.
 
@@ -219,6 +220,12 @@ uv run pytest experiments/<name>/ -v -m slow
 
 Review the report in `experiments/<name>/reports/`. If results are inconclusive,
 add more inputs or refine metrics.
+
+## Visual Companion
+
+A browser-based companion for showing mockups, diagrams, and visual options. Available as a tool - not a mode. The companion is available for questions that benefit from visual treatment;
+
+Read the detailed guide before using the Visual Companion: `skills/learning-experiment/visual-companion.md`
 
 ## Key Principles
 
