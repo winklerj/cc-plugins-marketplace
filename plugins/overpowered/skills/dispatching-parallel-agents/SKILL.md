@@ -5,178 +5,116 @@ description: Use when facing 2+ independent tasks that can be worked on without 
 
 # Dispatching Parallel Agents
 
-## Overview
+## Core Principle
 
-You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
+Decompose via **HTN** until leaves are **shared-nothing** and **MECE**; dispatch the resulting antichain as **bulkheaded** agents under **Design-by-Contract** prompts; integrate under **principal-agent** skepticism. Stop fanning out when **Amdahl's** serial fraction (your review cost) dominates.
 
-When you have multiple unrelated failures (different test files, different subsystems, different bugs), investigating them sequentially wastes time. Each investigation is independent and can happen in parallel.
+You delegate to agents with isolated context. They never inherit your session — you construct exactly what they need. This preserves your own context window for coordination.
 
-**Core principle:** Dispatch one agent per independent problem domain using HTN planning. Let them work concurrently.
+## Conceptual Glossary
 
-## When to Use
+| Concept | What it dictates |
+|---|---|
+| **HTN (Hierarchical Task Network)** | Recursively decompose the goal until leaves are atomic, executable tasks. |
+| **MECE partitioning** | Leaves must be Mutually Exclusive (no overlap → no merge conflicts) and Collectively Exhaustive (no gaps → nothing dropped). |
+| **Shared-nothing / embarrassingly parallel** | Precondition for dispatch. If leaves touch shared state, files, or resources, do not parallelize. |
+| **Dependency DAG / antichain** | Draw the dependency graph. Dispatch only the antichain (mutually unreachable nodes). Sequence the rest. |
+| **Amdahl's Law** | Speedup is bounded by the serial fraction — your review/integration step. Fanning out past ~3–5 agents usually hits diminishing returns. |
+| **Context window economics** | Agent isolation is not just "focus" — it preserves the orchestrator's working set. Each agent pays its own context cost in its own window. |
+| **Bulkhead pattern** | Each agent is a compartment. One agent's confusion or hallucination cannot flood the others. |
+| **Bounded context (DDD)** | Each prompt defines its own ubiquitous language and scope. The agent operates entirely within it. |
+| **Design by Contract** | The prompt is a contract: **preconditions** (scope, inputs, files), **postconditions** (return shape), **invariants** (constraints like "do not modify production code"). |
+| **Principal-agent problem** | Agents optimize for appearing successful, not being successful. Verification is structural, not paranoid. |
+| **Trust-region review** | Integrate one agent's diff at a time and re-test. Bounds the blast radius of a bad agent. |
+
+## Decision Flow
 
 ```dot
-digraph when_to_use {
-    "Multiple failures?" [shape=diamond];
-    "Are they independent?" [shape=diamond];
-    "Single agent investigates all" [shape=box];
-    "One agent per problem domain" [shape=box];
-    "Can they work in parallel?" [shape=diamond];
-    "Sequential agents" [shape=box];
-    "Parallel dispatch" [shape=box];
-
-    "Multiple failures?" -> "Are they independent?" [label="yes"];
-    "Are they independent?" -> "Single agent investigates all" [label="no - related"];
-    "Are they independent?" -> "Can they work in parallel?" [label="yes"];
-    "Can they work in parallel?" -> "Parallel dispatch" [label="yes"];
-    "Can they work in parallel?" -> "Sequential agents" [label="no - shared state"];
+digraph dispatch {
+    "HTN decompose to leaves" -> "Leaves MECE?";
+    "Leaves MECE?" -> "Re-decompose" [label="no - overlap or gaps"];
+    "Re-decompose" -> "HTN decompose to leaves";
+    "Leaves MECE?" -> "Shared-nothing?" [label="yes"];
+    "Shared-nothing?" -> "Sequence on DAG" [label="no - shared state"];
+    "Shared-nothing?" -> "Amdahl pays?" [label="yes"];
+    "Amdahl pays?" -> "Single agent" [label="no - serial fraction dominates"];
+    "Amdahl pays?" -> "Dispatch antichain in parallel" [label="yes"];
 }
 ```
 
-**Use when:**
-- 3+ test files failing with different root causes
-- Multiple subsystems broken independently
-- Each problem can be understood without context from others
-- No shared state between investigations
-
-**Don't use when:**
-- Failures are related (fix one might fix others)
-- Need to understand full system state
-- Agents would interfere with each other
-
 ## The Pattern
 
-### 1. Identify Independent Domains
+### 1. Decompose (HTN → MECE leaves)
 
-Group failures by what's broken:
-- File A tests: Tool approval flow
-- File B tests: Batch completion behavior
-- File C tests: Abort functionality
+Apply HTN until each leaf is one bounded context — a single test file, subsystem, or bug. Verify the partition is MECE: no two leaves edit the same code; together they cover the whole problem.
 
-Each domain is independent - fixing tool approval doesn't affect abort tests.
+### 2. Validate Independence (shared-nothing on the DAG)
 
-### 2. Create Focused Agent Tasks using HTN
+Build the dependency DAG. Only the antichain dispatches in parallel. If leaves share files, fixtures, or invariants, collapse them into one agent or sequence them.
 
-Each agent gets:
-- **Specific scope:** One test file or subsystem
-- **Clear goal:** Make these tests pass
-- **Constraints:** Don't change other code
-- **Expected output:** Summary of what you found and fixed
+### 3. Write Contracts (Design by Contract prompts)
 
-### 3. Dispatch in Parallel
+Each agent prompt is a contract:
 
-```typescript
-// In Claude Code / AI environment
-Task("Fix agent-tool-abort.test.ts failures")
-Task("Fix batch-completion-behavior.test.ts failures")
-Task("Fix tool-approval-race-conditions.test.ts failures")
-// All three run concurrently
-```
+- **Preconditions** — scope, inputs, files, error messages, what context they need
+- **Postconditions** — exact return shape (summary of root cause + changes)
+- **Invariants** — constraints that must hold ("do not modify production code", "do not just increase timeouts")
 
-### 4. Review and Integrate
-
-When agents return:
-- Read each summary
-- Verify fixes don't conflict
-- Run full test suite
-- Integrate all changes
-
-## Agent Prompt Structure
-
-Good agent prompts are:
-1. **Focused** - One clear problem domain
-2. **Self-contained** - All context needed to understand the problem
-3. **Specific about output** - What should the agent return?
+Example:
 
 ```markdown
 Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
 
-1. "should abort tool with partial output capture" - expects 'interrupted at' in message
-2. "should handle mixed completed and aborted tools" - fast tool aborted instead of completed
-3. "should properly track pendingToolCount" - expects 3 results but gets 0
+1. "should abort tool with partial output capture" — expects 'interrupted at' in message
+2. "should handle mixed completed and aborted tools" — fast tool aborted instead of completed
+3. "should properly track pendingToolCount" — expects 3 results but gets 0
 
-These are timing/race condition issues. Your task:
-
-1. Read the test file and understand what each test verifies
-2. Identify root cause - timing issues or actual bugs?
-3. Fix by:
-   - Replacing arbitrary timeouts with event-based waiting
-   - Fixing bugs in abort implementation if found
-   - Adjusting test expectations if testing changed behavior
-
-Do NOT just increase timeouts - find the real issue.
-
-Return: Summary of what you found and what you fixed.
+Preconditions: race-condition territory. Read the test file first.
+Invariants: do NOT just increase timeouts. Do NOT modify unrelated production code.
+Postconditions: return root cause + list of changes.
 ```
 
-## Common Mistakes
+### 4. Dispatch the Antichain
 
-**❌ Too broad:** "Fix all the tests" - agent gets lost
-**✅ Specific:** "Fix agent-tool-abort.test.ts" - focused scope
-
-**❌ No context:** "Fix the race condition" - agent doesn't know where
-**✅ Context:** Paste the error messages and test names
-
-**❌ No constraints:** Agent might refactor everything
-**✅ Constraints:** "Do NOT change production code" or "Fix tests only"
-
-**❌ Vague output:** "Fix it" - you don't know what changed
-**✅ Specific:** "Return summary of root cause and changes"
-
-## When NOT to Use
-
-**Related failures:** Fixing one might fix others - investigate together first
-**Need full context:** Understanding requires seeing entire system
-**Exploratory debugging:** You don't know what's broken yet
-**Shared state:** Agents would interfere (editing same files, using same resources)
-
-## Real Example from Session
-
-**Scenario:** 6 test failures across 3 files after major refactoring
-
-**Failures:**
-- agent-tool-abort.test.ts: 3 failures (timing issues)
-- batch-completion-behavior.test.ts: 2 failures (tools not executing)
-- tool-approval-race-conditions.test.ts: 1 failure (execution count = 0)
-
-**Decision:** Independent domains - abort logic separate from batch completion separate from race conditions
-
-**Dispatch:**
-```
-Agent 1 → Fix agent-tool-abort.test.ts
-Agent 2 → Fix batch-completion-behavior.test.ts
-Agent 3 → Fix tool-approval-race-conditions.test.ts
+```typescript
+Task("Fix agent-tool-abort.test.ts failures")
+Task("Fix batch-completion-behavior.test.ts failures")
+Task("Fix tool-approval-race-conditions.test.ts failures")
 ```
 
-**Results:**
-- Agent 1: Replaced timeouts with event-based waiting
-- Agent 2: Fixed event structure bug (threadId in wrong place)
-- Agent 3: Added wait for async tool execution to complete
+### 5. Integrate Under Principal-Agent Skepticism
 
-**Integration:** All fixes independent, no conflicts, full suite green
+Agents return summaries that describe what they *intended* to do, not necessarily what they did. Apply trust-region review:
 
-**Time saved:** 3 problems solved in parallel vs sequentially
+1. Read each diff (not just the summary)
+2. Integrate one at a time, re-running tests between
+3. Spot-check for systematic errors — agents fail in correlated ways
+4. Run the full suite at the end
 
-## Key Benefits
+## When NOT to Dispatch
 
-1. **Parallelization** - Multiple investigations happen simultaneously
-2. **Focus** - Each agent has narrow scope, less context to track. Stays out of the dumb-zone
-3. **Independence** - Agents don't interfere with each other
-4. **Speed** - 3 problems solved in time of 1
+- **Not MECE** — leaves overlap or have gaps. Re-decompose first.
+- **Not shared-nothing** — agents would race on the same files or state.
+- **Amdahl unfavorable** — your serial review cost exceeds the parallel savings (often true for 1–2 small tasks).
+- **Exploratory** — you don't yet know what's broken. HTN requires a goal to decompose.
 
-## Verification
+## Common Contract Violations
 
-After agents return:
-1. **Review each summary** - Understand what changed
-2. **Check for conflicts** - Did agents edit same code?
-3. **Run full suite** - Verify all fixes work together
-4. **Spot check** - Agents can make systematic errors
+| Violation | Failure mode |
+|---|---|
+| Vague scope | Agent expands scope, refactors unrelated code |
+| Missing invariants | Agent takes shortcut (increases timeout, deletes test) |
+| Unspecified postcondition | You can't tell what the agent actually did |
+| Missing preconditions | Agent gathers context wrong, solves wrong problem |
 
-## Real-World Impact
+## Real Example
 
-From debugging session (2025-10-03):
-- 6 failures across 3 files
-- 3 agents dispatched in parallel
-- All investigations completed concurrently
-- All fixes integrated successfully
-- Zero conflicts between agent changes
+**Scenario:** 6 test failures across 3 files after a refactor.
+
+- HTN decomposition → 3 leaves (one per file)
+- MECE check → ✓ disjoint files, together covering all failures
+- Shared-nothing → ✓ no shared fixtures
+- Antichain → all 3 leaves are mutually independent
+- Amdahl → 3 agents in parallel, review cost ~constant → favorable
+
+**Result:** 3 agents dispatched concurrently. Trust-region integration surfaced one systematic error in agent 2's summary before it merged. Full suite green.
