@@ -1,161 +1,119 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: Help the user define and narrow the problem before any code gets written. Use whenever the user wants to brainstorm, scope a feature, plan a new project or subsystem, decide between architectural approaches, write a PRD or spec, or says things like "I'm thinking about building...", "help me think through...", "should I use X or Y", or "where do I even start with this." Prioritize problem framing and scope narrowing over idea generation. Stack context: Next.js/TypeScript frontend, FastAPI/Python on Modal backend, Supabase for database and storage.
 ---
 
-# Brainstorming Ideas Into Designs
+# Brainstorm
 
-Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
+Most failed projects don't lack ideas — they solve the wrong problem, or commit to an architecture before they understand the shape of the data and the access patterns. The job of this skill is to help the user frame the problem sharply enough that the build is mostly mechanical. Idea generation is secondary; problem definition is the leverage point.
 
-Start by understanding the current project context, then ask questions one at a time to refine the idea. Once you understand what you're building, present the design and get user approval.
+## Core stance
 
-<HARD-GATE>
-Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity.
-</HARD-GATE>
+Resist the urge to architect, suggest libraries, or propose solutions early. The user almost always has more context than they've shared. Your job is to extract it, organize it, and reflect it back in a form that makes the next move obvious.
 
-## Anti-Pattern: "This Is Too Simple To Need A Design"
+Ask **one question at a time**. Flooding the user with five questions kills the thinking. Pick the highest-leverage one for where they are, ask it, listen, then pick the next.
 
-Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
+When the user states a solution ("I want to add a websocket layer"), translate it back into a problem ("what breaks for the user without it?") before engaging with the solution itself.
 
-## Checklist
+## The opening move
 
-You MUST create a task for each of these items and complete them in order:
+Before anything else, figure out what you're brainstorming. Briefly classify out loud:
 
-1. **Explore project context in subagent(s)** — check files, docs, recent commits
-2. **Ask clarifying questions** — one at a time, understand purpose/constraints/success criteria
-3. **Propose learning experiments** — to provide real data to support approach decisions
-3. **Propose 2-3 approaches** — with trade-offs and your recommendation
-4. **Present design** — in sections scaled to their complexity, get user approval after each section
-5. **Write design doc** — save to `docs/overpowered/specs/YYYY-MM-DD-<topic>-design.md` and commit
-6. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-7. **Codex reviews written spec** — spawn a codex session to provide feedback on the spec file before proceeding
-8. **Transition to implementation** — invoke writing-plans skill to create implementation plan
+- **Greenfield system or subsystem** — new architecture, new data model, new boundaries
+- **New feature in an existing system** — fits into known patterns
+- **Architectural decision** — choosing between two or more approaches
+- **Performance / scale problem** — measurement matters more than ideation
+- **Vague itch** — user knows something is wrong but can't articulate what
 
-## Process Flow
+This shapes everything that follows. Greenfield deserves event storming and pre-mortems; a CRUD feature deserves twenty minutes and a checklist.
 
-```dot
-digraph brainstorming {
-    "Explore project context" [shape=box];
-    "Visual questions ahead?" [shape=diamond];
-    "Use Visual Companion\n(own message, no other content)" [shape=box];
-    "Ask clarifying questions" [shape=box];
-    "Propose 2-3 approaches" [shape=box];
-    "Present design sections" [shape=box];
-    "User approves design?" [shape=diamond];
-    "Write design doc" [shape=box];
-    "Spec self-review\n(fix inline)" [shape=box];
-    "User reviews spec?" [shape=diamond];
-    "Invoke writing-plans skill" [shape=doublecircle];
+## High-leverage questions
 
-    "Explore project context" -> "Visual questions ahead?";
-    "Visual questions ahead?" -> "Use Visual Companion\n(own message, no other content)" [label="yes"];
-    "Visual questions ahead?" -> "Ask clarifying questions" [label="no"];
-    "Use Visual Companion\n(own message, no other content)" -> "Ask clarifying questions";
-    "Ask clarifying questions" -> "Propose 2-3 approaches";
-    "Propose 2-3 approaches" -> "Present design sections";
-    "Present design sections" -> "User approves design?";
-    "User approves design?" -> "Present design sections" [label="no, revise"];
-    "User approves design?" -> "Write design doc" [label="yes"];
-    "Write design doc" -> "Spec self-review\n(fix inline)";
-    "Spec self-review\n(fix inline)" -> "User reviews spec?";
-    "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Invoke writing-plans skill" [label="approved"];
-}
+Reach for these, in roughly this priority order. Don't ask all of them — ask the ones that are still unanswered.
+
+1. **What does the user (or system) do today, before this exists?** Reveals the real workflow and the real pain, which often differs from the stated request.
+2. **What's the smallest version of this that's end-to-end useful?** The walking skeleton. Forces a steel thread through Next.js → FastAPI → Supabase before fanning out.
+3. **What's the shape of the data, and what are the access patterns?** Doubly important on this stack — Supabase RLS policies and FastAPI route boundaries will mirror the data model whether the user plans for it or not.
+4. **What is this explicitly NOT going to do?** Scope is defined more by exclusions than inclusions.
+5. **If we had to ship in a day, what would we cut? In a week? In a month?** The deltas reveal what's actually core.
+6. **What breaks first at 10x usage / data / users?** Cheap insurance against architectural cul-de-sacs.
+7. **Who else touches this — humans or systems — and what do they expect?** Surfaces hidden contracts.
+
+## Narrowing scope
+
+When the user has too many ideas or the problem is sprawling:
+
+- **MoSCoW** — sort everything into Must / Should / Could / Won't. The Won't column is the most valuable.
+- **Steel thread** — pick one complete path through every layer of the stack and build that first. Defer breadth until the depth works end-to-end.
+- **Story mapping** — lay out the user flow horizontally, then stack alternatives and edge cases vertically beneath each step. Works for backend-heavy work too: replace user steps with system events.
+- **MECE decomposition** — break the problem into parts that are Mutually Exclusive and Collectively Exhaustive. If the parts overlap or leave gaps, the decomposition is wrong.
+
+## Generating unexpected angles
+
+When the user is stuck in a single frame:
+
+- **Inversion** — How would we make this fail? How would we make it worse? What's the dumbest version that still works?
+- **Pre-mortem** — Imagine it's six months from now and the project flopped. Why? The brain is much better at explaining a known outcome than predicting one, so this reliably surfaces risks forward planning misses.
+- **Constraint flips** — *What if there were no database?* (forces clarity on what's truly state vs. derivable). *What if compute were free?* (often reveals over-engineering for a non-problem). *What if this weren't software at all?*
+- **SCAMPER**, especially Substitute / Eliminate / Reverse, applied to existing components.
+
+## Formal frameworks worth naming
+
+Reach for these when the situation warrants. Naming them explicitly helps — these terms are dense and well-represented in technical literature, so they pull weight in downstream prompts and docs.
+
+- **C4 model** (Context / Container / Component / Code) — lightweight architecture sketches. Good default for visualizing a Next.js + FastAPI + Supabase setup.
+- **Event Storming** — when the backend has nontrivial state transitions or async flows. Do this *before* committing to FastAPI route shapes.
+- **Domain-Driven Design** — bounded contexts and aggregates. Overkill for CRUD; valuable when the domain is genuinely complex.
+- **Jobs To Be Done** — keeps feature framing honest about *why* something exists.
+- **ADRs (Architecture Decision Records)** — write one before building. The act of articulating the alternatives and tradeoffs *is* the brainstorm.
+- **Wardley mapping** — for build vs. buy vs. commodity decisions (e.g., roll your own auth vs. Supabase Auth).
+
+## Calibrating depth to complexity
+
+| Task type | Time investment | Methods |
+|---|---|---|
+| CRUD / known patterns | Minutes | A few "what edge cases break this" questions |
+| New feature, existing system | ~30 min | Shape the API contract, walk 2–3 user paths, list failure modes, optional one-page ADR |
+| New subsystem / greenfield | Hours, possibly across sessions | C4 sketch, event storming, pre-mortem, ADR. Disproportionate time on data model and on the boundaries between Next.js server actions, FastAPI endpoints, and Supabase queries |
+| Performance / scale | Measurement before ideation | Hypotheses are cheap; profiling tells you which to chase |
+
+The risk at the low-complexity end is over-method-ing. The risk at the high-complexity end is shipping the steel thread before knowing where the boundaries should be.
+
+## Output
+
+Every brainstorm session should end with a written artifact, even just a paragraph. Writing it down separates the ideas the user actually believes from the ones that only sounded good in the moment. It also doubles as a high-quality prompt for any agent work that follows.
+
+Default artifact: a short markdown doc with these sections, kept terse:
+
+```markdown
+# [Project / feature name]
+
+## Problem
+What is broken or missing today. One or two sentences.
+
+## Out of scope
+What this explicitly will not do.
+
+## Walking skeleton
+The smallest end-to-end useful version.
+
+## Data shape
+Key entities, their fields, and the access patterns that matter.
+
+## Open questions
+What still needs resolving before building.
+
+## Decisions made
+Short ADR-style entries: decision, alternatives considered, why.
 ```
 
-**The terminal state is invoking writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
+Adapt the template to the situation — drop sections that don't apply, add sections (e.g., "Scaling assumptions", "Failure modes") when the brainstorm surfaces them. Offer the artifact at the end of the session and let the user iterate on it.
 
-## The Process
+## Anti-patterns to watch for
 
-**Understanding the idea:**
-
-- Check out the current project state first (files, docs, recent commits)
-- Before asking detailed questions, assess scope: if the request describes multiple independent subsystems (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately. Don't spend questions refining details of a project that needs to be decomposed first.
-- If the project is too large for a single spec, help the user decompose into sub-projects: what are the independent pieces, how do they relate, what order should they be built? Then brainstorm the first sub-project through the normal design flow. Each sub-project gets its own spec → plan → implementation cycle.
-- For appropriately-scoped projects, ask questions one at a time to refine the idea
-- Prefer multiple choice questions when possible, but open-ended is fine too
-- Only one question per message - if a topic needs more exploration, break it into multiple questions
-- Focus on understanding: purpose, constraints, success criteria
-
-**Exploring approaches:**
-
-- Propose 2-3 different approaches with trade-offs
-- Present options conversationally with your recommendation and reasoning
-- Lead with your recommended option and explain why
-
-**Presenting the design:**
-
-- Once you believe you understand what you're building, present the design
-- Scale each section to its complexity: a few sentences if straightforward, up to 200-300 words if nuanced
-- Ask after each section whether it looks right so far
-- Cover: architecture, components, data flow, error handling, testing
-- Be ready to go back and clarify if something doesn't make sense
-
-**Design for isolation and clarity:**
-
-- Break the system into smaller units that each have one clear purpose, communicate through well-defined interfaces, and can be understood and tested independently
-- For each unit, you should be able to answer: what does it do, how do you use it, and what does it depend on?
-- Can someone understand what a unit does without reading its internals? Can you change the internals without breaking consumers? If not, the boundaries need work.
-- Smaller, well-bounded units are also easier for you to work with - you reason better about code you can hold in context at once, and your edits are more reliable when files are focused. When a file grows large, that's often a signal that it's doing too much.
-
-**Working in existing codebases:**
-
-- Explore the current structure before proposing changes. Follow existing patterns.
-- Where existing code has problems that affect the work (e.g., a file that's grown too large, unclear boundaries, tangled responsibilities), include targeted improvements as part of the design - the way a good developer improves code they're working in.
-- Don't propose unrelated refactoring. Stay focused on what serves the current goal.
-
-## After the Design
-
-**Documentation:**
-
-- Write the validated design (spec) to `docs/overpowered/specs/YYYY-MM-DD-<topic>-design.md`
-  - (User preferences for spec location override this default)
-- Use elements-of-style:writing-clearly-and-concisely skill if available
-- Commit the design document to git
-
-**Spec Self-Review:**
-After writing the spec document, look at it with fresh eyes:
-
-1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
-2. **Internal consistency:** Do any sections contradict each other? Does the architecture match the feature descriptions?
-3. **Scope check:** Is this focused enough for a single implementation plan, or does it need decomposition?
-4. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
-
-Fix any issues inline. No need to re-review — just fix and move on.
-
-**User Review Gate:**
-After the spec review loop passes, ask the user to review the written spec before proceeding:
-
-> "Spec written and committed to `<path>`. Please review it and let me know if you want to make any changes before we start writing out the implementation plan."
-
-Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
-
-**Implementation:**
-
-- Invoke the writing-plans skill to create a detailed implementation plan
-- Do NOT invoke any other skill. writing-plans is the next step.
-
-## Key Principles
-
-- **One question at a time** - Don't overwhelm with multiple questions
-- **Multiple choice preferred** - Easier to answer than open-ended when possible
-- **YAGNI ruthlessly** - Remove unnecessary features from all designs
-- **Explore alternatives** - Always propose 2-3 approaches before settling
-- **Incremental validation** - Present design, get approval before moving on
-- **Be flexible** - Go back and clarify when something doesn't make sense
-
-## Visual Companion
-
-A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. The companion is available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
-
-**Using the companion:** When you anticipate that upcoming questions will involve visual content (mockups, layouts, diagrams), use the visual companion.
-
-**Per-question decision:** Decide FOR EACH QUESTION whether to use the browser or the terminal. The test: **would the user understand this better by seeing it than reading it?**
-
-- **Use the browser** for content that IS visual — mockups, wireframes, layout comparisons, architecture diagrams, side-by-side visual designs
-- **Use the terminal** for content that is text — requirements questions, conceptual choices, tradeoff lists, A/B/C/D text options, scope decisions
-
-A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use the terminal. "Which wizard layout works better?" is a visual question — use the browser.
-
-If they agree to the companion, read the detailed guide before proceeding:
-`skills/brainstorming/visual-companion.md`
+- Generating a long list of features before the problem is sharp.
+- Recommending a library or framework before the data model is clear.
+- Asking five questions in one turn.
+- Engaging with a stated solution without first understanding the underlying problem.
+- Producing an architecture diagram for a task that's actually CRUD.
+- Skipping the written artifact because "we already talked through it."
