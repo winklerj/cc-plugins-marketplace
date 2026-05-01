@@ -1,39 +1,39 @@
 ---
 name: brainstorming
-description: Help the user define and narrow the problem before any code gets written. Use whenever the user wants to brainstorm, scope a feature, plan a new project or subsystem, decide between architectural approaches, write a PRD or spec, or says things like "I'm thinking about building...", "help me think through...", "should I use X or Y", or "where do I even start with this." Prioritize problem framing and scope narrowing over idea generation. Stack context: Next.js/TypeScript frontend, FastAPI/Python on Modal backend, Supabase for database and storage.
+description: Help the user define and narrow the problem before any code gets written. Use whenever the user wants to brainstorm, scope a feature, plan a new project or subsystem, decide between architectural approaches, write a PRD or spec, or says things like "I'm thinking about building...", "help me think through...", "should I use X or Y", or "where do I even start with this." Prioritize problem framing and scope narrowing over idea generation.
 ---
 
 # Brainstorm
 
-Most failed projects don't lack ideas — they solve the wrong problem, or commit to an architecture before they understand the shape of the data and the access patterns. The job of this skill is to help the user frame the problem sharply enough that the build is mostly mechanical. Idea generation is secondary; problem definition is the leverage point.
+Most failed projects don't lack ideas — they solve the wrong problem, or commit to an architecture before they understand the data shape and access patterns. The job here is to frame the problem sharply enough that the build is mostly mechanical. Ideation is secondary.
 
 ## Core stance
 
-Resist the urge to architect, suggest libraries, or propose solutions early. The user almost always has more context than they've shared. Your job is to extract it, organize it, and reflect it back in a form that makes the next move obvious.
+Resist proposing solutions, libraries, or architectures early. The user has more context than they've shared. Extract it, organize it, reflect it back.
 
-Ask **one question at a time**. Flooding the user with five questions kills the thinking. Pick the highest-leverage one for where they are, ask it, listen, then pick the next.
+Ask **one question at a time**. Flooding the user with five questions kills the thinking.
 
-When the user states a solution ("I want to add a websocket layer"), translate it back into a problem ("what breaks for the user without it?") before engaging with the solution itself.
+When the user states a solution ("I want a websocket layer"), translate it back to a problem ("what breaks for the user without it?") before engaging.
 
 ## The opening move
 
-Before anything else, figure out what you're brainstorming. Briefly classify out loud:
+Classify what you're brainstorming, briefly and out loud:
 
-- **Greenfield system or subsystem** — new architecture, new data model, new boundaries
-- **New feature in an existing system** — fits into known patterns
+- **Greenfield system or subsystem** — new architecture, data model, boundaries
+- **New feature in an existing system** — fits known patterns
 - **Architectural decision** — choosing between two or more approaches
 - **Performance / scale problem** — measurement matters more than ideation
 - **Vague itch** — user knows something is wrong but can't articulate what
 
-This shapes everything that follows. Greenfield deserves event storming and pre-mortems; a CRUD feature deserves twenty minutes and a checklist.
+This shapes everything that follows.
 
 ## High-leverage questions
 
-Reach for these, in roughly this priority order. Don't ask all of them — ask the ones that are still unanswered.
+Reach for these in roughly this order. Ask only those still unanswered.
 
-1. **What does the user (or system) do today, before this exists?** Reveals the real workflow and the real pain, which often differs from the stated request.
-2. **What's the smallest version of this that's end-to-end useful?** The walking skeleton. Forces a steel thread through Next.js → FastAPI → Supabase before fanning out.
-3. **What's the shape of the data, and what are the access patterns?** Doubly important on this stack — Supabase RLS policies and FastAPI route boundaries will mirror the data model whether the user plans for it or not.
+1. **What does the user (or system) do today, before this exists?** Reveals the real workflow, which often differs from the stated request.
+2. **What's the smallest end-to-end useful version?** The walking skeleton — forces a steel thread through every layer before fanning out.
+3. **What's the shape of the data, and what are the access patterns?** Downstream boundaries will mirror the data model whether the user plans for it or not.
 4. **What is this explicitly NOT going to do?** Scope is defined more by exclusions than inclusions.
 5. **If we had to ship in a day, what would we cut? In a week? In a month?** The deltas reveal what's actually core.
 6. **What breaks first at 10x usage / data / users?** Cheap insurance against architectural cul-de-sacs.
@@ -41,32 +41,30 @@ Reach for these, in roughly this priority order. Don't ask all of them — ask t
 
 ## Narrowing scope
 
-When the user has too many ideas or the problem is sprawling:
-
-- **MoSCoW** — sort everything into Must / Should / Could / Won't. The Won't column is the most valuable.
-- **Steel thread** — pick one complete path through every layer of the stack and build that first. Defer breadth until the depth works end-to-end.
-- **Story mapping** — lay out the user flow horizontally, then stack alternatives and edge cases vertically beneath each step. Works for backend-heavy work too: replace user steps with system events.
-- **MECE decomposition** — break the problem into parts that are Mutually Exclusive and Collectively Exhaustive. If the parts overlap or leave gaps, the decomposition is wrong.
+- **MoSCoW** — Must / Should / Could / Won't. The Won't column is the most valuable.
+- **Steel thread** — pick one complete path through every layer and build that first; defer breadth until depth works end-to-end.
+- **Story mapping** — user flow horizontally, alternatives and edge cases stacked vertically beneath each step. Works for backend-heavy work by replacing user steps with system events.
+- **MECE decomposition** — break the problem into Mutually Exclusive, Collectively Exhaustive parts. Overlap or gaps mean the decomposition is wrong.
 
 ## Generating unexpected angles
 
-When the user is stuck in a single frame:
-
-- **Inversion** — How would we make this fail? How would we make it worse? What's the dumbest version that still works?
-- **Pre-mortem** — Imagine it's six months from now and the project flopped. Why? The brain is much better at explaining a known outcome than predicting one, so this reliably surfaces risks forward planning misses.
-- **Constraint flips** — *What if there were no database?* (forces clarity on what's truly state vs. derivable). *What if compute were free?* (often reveals over-engineering for a non-problem). *What if this weren't software at all?*
+- **Inversion** — How would we make this fail? Make it worse? What's the dumbest version that still works?
+- **Pre-mortem** — Imagine it's six months from now and the project flopped. Why? The brain is far better at explaining a known outcome than predicting one, so this surfaces risks forward planning misses.
+- **Constraint flips** — *No database?* (clarifies what's truly state vs. derivable). *Free compute?* (often reveals over-engineering). *Not software at all?*
 - **SCAMPER**, especially Substitute / Eliminate / Reverse, applied to existing components.
 
-## Formal frameworks worth naming
+## Formal frameworks
 
-Reach for these when the situation warrants. Naming them explicitly helps — these terms are dense and well-represented in technical literature, so they pull weight in downstream prompts and docs.
+When the situation warrants, reach for:
 
-- **C4 model** (Context / Container / Component / Code) — lightweight architecture sketches. Good default for visualizing a Next.js + FastAPI + Supabase setup.
-- **Event Storming** — when the backend has nontrivial state transitions or async flows. Do this *before* committing to FastAPI route shapes.
+- **C4 model** — Context / Container / Component / Code architecture sketches.
+- **Event Storming** — for nontrivial state transitions or async flows. Do this *before* committing to API shapes.
 - **Domain-Driven Design** — bounded contexts and aggregates. Overkill for CRUD; valuable when the domain is genuinely complex.
 - **Jobs To Be Done** — keeps feature framing honest about *why* something exists.
-- **ADRs (Architecture Decision Records)** — write one before building. The act of articulating the alternatives and tradeoffs *is* the brainstorm.
-- **Wardley mapping** — for build vs. buy vs. commodity decisions (e.g., roll your own auth vs. Supabase Auth).
+- **ADRs (Architecture Decision Records)** — write before building. The act of articulating alternatives and tradeoffs *is* the brainstorm.
+- **Wardley mapping** — for build vs. buy vs. commodity decisions.
+
+When any of these are used substantively during the session, capture the output as its own file in the session folder (see Output) and link it from `brainstorm.md`.
 
 ## Calibrating depth to complexity
 
@@ -74,16 +72,26 @@ Reach for these when the situation warrants. Naming them explicitly helps — th
 |---|---|---|
 | CRUD / known patterns | Minutes | A few "what edge cases break this" questions |
 | New feature, existing system | ~30 min | Shape the API contract, walk 2–3 user paths, list failure modes, optional one-page ADR |
-| New subsystem / greenfield | Hours, possibly across sessions | C4 sketch, event storming, pre-mortem, ADR. Disproportionate time on data model and on the boundaries between Next.js server actions, FastAPI endpoints, and Supabase queries |
-| Performance / scale | Measurement before ideation | Hypotheses are cheap; profiling tells you which to chase |
+| New subsystem / greenfield | Hours, possibly across sessions | C4 sketch, event storming, pre-mortem, ADR. Disproportionate time on data model and boundaries |
+| Performance / scale | Measurement before ideation | Use the `learning-experiment` skill to test hypotheses and gather real profile data; ideate on what the data actually shows |
 
-The risk at the low-complexity end is over-method-ing. The risk at the high-complexity end is shipping the steel thread before knowing where the boundaries should be.
+Risk at the low end: over-method-ing. Risk at the high end: shipping the steel thread before knowing where the boundaries should be.
 
 ## Output
 
-Every brainstorm session should end with a written artifact, even just a paragraph. Writing it down separates the ideas the user actually believes from the ones that only sounded good in the moment. It also doubles as a high-quality prompt for any agent work that follows.
+When the conversation has produced enough substance — key decisions made, walking skeleton defined, scope bounded, or the user signals they're done — write the artifacts. Do not ask permission, do not display contents in chat, do not summarize. Just write the files. Saving them is the handoff.
 
-Default artifact: a short markdown doc with these sections, kept terse:
+Save to:
+
+```
+docs/overpowered/{YYYY-MM-DD}/{task-slug}/
+```
+
+`{task-slug}` is a short kebab-case name for the brainstorm topic. Create the folder if it doesn't exist. After writing, tell the user the folder path so they can find the files.
+
+### Always write two files
+
+**1. `brainstorm.md`** — the solution-design handoff and index for the session. Terse markdown, sections adapted to the situation. Drop sections that don't apply; add ones the brainstorm surfaces (e.g., "Scaling assumptions", "Failure modes"). At the bottom, link any supplementary artifacts produced.
 
 ```markdown
 # [Project / feature name]
@@ -105,15 +113,47 @@ What still needs resolving before building.
 
 ## Decisions made
 Short ADR-style entries: decision, alternatives considered, why.
+
+## Supplementary artifacts
+- `research-questions.md` — codebase facts to gather before solution design
+- (any framework outputs produced — see below)
 ```
 
-Adapt the template to the situation — drop sections that don't apply, add sections (e.g., "Scaling assumptions", "Failure modes") when the brainstorm surfaces them. Offer the artifact at the end of the session and let the user iterate on it.
+**2. `research-questions.md`** — questions about the *current state of the codebase* that need answers before solution design. This document feeds a separate research task and **must not contain any proposed solutions, hypotheses about what to build, or biased framing**. It captures only facts to gather.
 
-## Anti-patterns to watch for
+Good research questions:
+- Where in the codebase is X currently handled?
+- What is the existing data model for Y? Which tables, fields, relationships?
+- What patterns are used for Z (authentication, error handling, background jobs, etc.)?
+- Are there existing utilities, abstractions, or modules for W?
+- What external dependencies or services are involved in V?
+- Where does U get logged, monitored, or traced?
+- What tests cover T, and what gaps exist?
 
-- Generating a long list of features before the problem is sharp.
+Bad research questions (these belong in `brainstorm.md`, not here):
+- Could we add a websocket layer for X? *(solution-biased)*
+- Would Redis fit here? *(solution-biased)*
+- How should we restructure Y? *(presumes restructuring is the answer)*
+
+Group questions by area (data model, existing patterns, integrations, observability, tests, etc.). Each question must be answerable by reading code, not by making judgments.
+
+### Optional artifacts
+
+Save in the same folder when the corresponding framework is applied substantively. Reference each from the Supplementary artifacts section of `brainstorm.md` so the user opens one file and can branch from there.
+
+- `event-storm.md` — events, commands, aggregates surfaced during event storming
+- `c4-{level}.md` — C4 sketches at the relevant level
+- `adr-NNN-{topic}.md` — one file per architecture decision
+- `wardley.md` — Wardley map description
+- `domain-model.md` — DDD bounded contexts and aggregates
+
+## Anti-patterns
+
+- Generating a feature list before the problem is sharp.
 - Recommending a library or framework before the data model is clear.
 - Asking five questions in one turn.
-- Engaging with a stated solution without first understanding the underlying problem.
+- Engaging with a stated solution without first surfacing the underlying problem.
 - Producing an architecture diagram for a task that's actually CRUD.
-- Skipping the written artifact because "we already talked through it."
+- Letting solution ideas, hypotheses, or framing leak into `research-questions.md`.
+- Writing `brainstorm.md` before the conversation has produced enough substance to fill it.
+- Asking the user whether to save the artifacts. Just write them.
