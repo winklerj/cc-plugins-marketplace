@@ -54,24 +54,34 @@ Build the dependency DAG. Only the antichain dispatches in parallel. If leaves s
 
 ### 3. Write Contracts (Design by Contract prompts)
 
-Each agent prompt is a contract:
+Each agent prompt is a contract with four clauses:
 
-- **Preconditions** — scope, inputs, files, error messages, what context they need
-- **Postconditions** — exact return shape (summary of root cause + changes)
-- **Invariants** — constraints that must hold ("do not modify production code", "do not just increase timeouts")
+- **Preconditions** — scope, inputs, files, error messages, observed symptoms
+- **Method** — investigation procedure (read → diagnose → fix). Pure contracts under-specify *how*; debugging agents flounder without method. Skip only for trivially mechanical tasks.
+- **Invariants** — constraints, especially **negative invariants** that block shortcuts ("do NOT just increase timeouts", "do NOT modify unrelated production code", "do NOT delete failing tests"). Anti-shortcut invariants are the highest-leverage clause.
+- **Postconditions** — exact return shape (root cause + list of changes + files touched)
 
 Example:
 
 ```markdown
-Fix the 3 failing tests in src/agents/agent-tool-abort.test.ts:
+Fix 3 failing tests in src/agents/agent-tool-abort.test.ts:
 
-1. "should abort tool with partial output capture" — expects 'interrupted at' in message
-2. "should handle mixed completed and aborted tools" — fast tool aborted instead of completed
-3. "should properly track pendingToolCount" — expects 3 results but gets 0
+Preconditions:
+- "should abort tool with partial output capture" — expects 'interrupted at' in message
+- "should handle mixed completed and aborted tools" — fast tool aborted instead of completed
+- "should properly track pendingToolCount" — expects 3 results but gets 0
+- Likely race-condition territory.
 
-Preconditions: race-condition territory. Read the test file first.
-Invariants: do NOT just increase timeouts. Do NOT modify unrelated production code.
-Postconditions: return root cause + list of changes.
+Method:
+1. Read the test file. Understand what each test verifies.
+2. Diagnose: timing issue or actual bug?
+3. Fix by replacing arbitrary timeouts with event-based waiting, or by fixing the abort implementation.
+
+Invariants:
+- Do NOT just increase timeouts.
+- Do NOT modify production code outside the abort path.
+
+Postconditions: return root cause, list of changes, files touched.
 ```
 
 ### 4. Dispatch the Antichain
@@ -84,12 +94,13 @@ Task("Fix tool-approval-race-conditions.test.ts failures")
 
 ### 5. Integrate Under Principal-Agent Skepticism
 
-Agents return summaries that describe what they *intended* to do, not necessarily what they did. Apply trust-region review:
+Agents return summaries describing what they *intended*, not what they did. Apply trust-region review:
 
-1. Read each diff (not just the summary)
-2. Integrate one at a time, re-running tests between
-3. Spot-check for systematic errors — agents fail in correlated ways
-4. Run the full suite at the end
+1. **Read each diff** — not just the summary.
+2. **Overlap check** — diff the file sets across agents. Any shared file is a MECE violation that slipped through; resolve before integrating.
+3. **Integrate one at a time**, re-running tests between. Bounds blast radius if one agent is wrong.
+4. **Spot-check for systematic errors** — agents fail in correlated ways (e.g., all three weakened assertions instead of fixing logic).
+5. **Run the full suite** at the end.
 
 ## When NOT to Dispatch
 
