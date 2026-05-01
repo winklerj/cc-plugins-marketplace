@@ -1,6 +1,11 @@
+---
+name: implement-plan
+description: Use when you have an approved technical plan in docs/overpowered/{YYYY-MM-DD}/{task-slug}/ to execute - follows phases, verifies success criteria, updates checkboxes, and pauses for manual verification when instructed
+---
+
 # Implement Plan
 
-You are tasked with implementing an approved technical plan from `thoughts/shared/plans/`. These plans contain phases with specific changes and success criteria.
+You are tasked with implementing an approved technical plan from `docs/overpowered/{YYYY-MM-DD}/{task-slug}/`. These plans contain phases with specific changes and success criteria.
 
 ## Getting Started
 
@@ -43,7 +48,7 @@ After implementing a phase:
 - Fix any issues before proceeding
 - Update your progress in both the plan and your todos
 - Check off completed items in the plan file itself using Edit
-- **Pause for human verification**: After completing all automated verification for a phase, pause and inform the human that the phase is ready for manual testing. Use this format:
+- If instructed **Pause for human verification**: After completing all automated verification for a phase, pause and inform the human that the phase is ready for manual testing. Use this format:
   ```
   Phase [N] Complete - Ready for Manual Verification
 
@@ -56,9 +61,9 @@ After implementing a phase:
   Let me know when manual testing is complete so I can proceed to Phase [N+1].
   ```
 
-If instructed to execute multiple phases consecutively, skip the pause until the last phase. Otherwise, assume you are just doing one phase.
-
 do not check off items in the manual testing steps until confirmed by the user.
+
+Otherwise execute multiple phases consecutively, skip the pause until the last phase.
 
 
 ## If You Get Stuck
