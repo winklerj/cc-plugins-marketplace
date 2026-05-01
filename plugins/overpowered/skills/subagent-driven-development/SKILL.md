@@ -264,9 +264,6 @@ Done!
 
 ## Integration
 
-**Optional workflow skills:**
-- **overpowered:using-git-worktrees** - REQUIRED: Set up isolated workspace before starting
-
 **Required workflow skills:**
 - **overpowered:writing-plans** - Creates the plan this skill executes
 - **overpowered:requesting-code-review** - Code review template for reviewer subagents

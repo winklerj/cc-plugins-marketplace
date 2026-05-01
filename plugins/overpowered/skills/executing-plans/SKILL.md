@@ -65,9 +65,6 @@ After all tasks complete and verified:
 
 ## Integration
 
-**Optional workflow skills:**
-- **overpowered:using-git-worktrees** - Set up isolated workspace before starting
-
 **Required workflow skills:**
 - **overpowered:writing-plans** - Creates the plan this skill executes
 - **overpowered:finishing-a-development-branch** - Complete development after all tasks

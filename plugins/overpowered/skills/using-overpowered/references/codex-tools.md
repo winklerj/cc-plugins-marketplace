@@ -71,7 +71,7 @@ skills can dispatch named agent types directly.
 
 ## Environment Detection
 
-Skills that create worktrees or finish branches should detect their
+Skills that finish branches should detect their
 environment with read-only git commands before proceeding:
 
 ```bash
@@ -83,7 +83,7 @@ BRANCH=$(git branch --show-current)
 - `GIT_DIR != GIT_COMMON` → already in a linked worktree (skip creation)
 - `BRANCH` empty → detached HEAD (cannot branch/push/PR from sandbox)
 
-See `using-git-worktrees` Step 0 and `finishing-a-development-branch`
+See `finishing-a-development-branch`
 Step 1 for how each skill uses these signals.
 
 ## Codex App Finishing

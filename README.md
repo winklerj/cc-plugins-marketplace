@@ -14,7 +14,6 @@ Comprehensive TypeScript development plugin with 13 specialized agents, 5 automa
 - E2B sandboxed execution
 - Authentication systems
 - Quality gates and verification
-- Session-based git worktrees
 
 ### [beads-task-management](plugins/beads-task-management/README.md)
 
