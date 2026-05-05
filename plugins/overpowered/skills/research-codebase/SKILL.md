@@ -1,6 +1,6 @@
 ---
 name: research-codebase
-description: Use when the user asks a research question about the codebase - spawns parallel sub-agents (codebase-locator, codebase-analyzer, codebase-pattern-finder) to document what exists, then synthesizes findings into a structured research document under thoughts/shared/research/
+description: Use when the user asks a research question about the codebase - spawns parallel sub-agents (codebase-locator, codebase-analyzer, codebase-pattern-finder) to document what exists, then synthesizes findings into a structured research document under docs/overpowered/{YYYY-MM-DD}/{task-slug}/research.md
 ---
 
 # Research Codebase
@@ -78,14 +78,10 @@ Then wait for the user's research query.
 
 5. **Gather metadata for the research document:**
    - Run Bash() tools to generate all relevant metadata
-   - Filename: `thoughts/shared/research/YYYY-MM-DD-ENG-XXXX-description.md`
-     - Format: `YYYY-MM-DD-ENG-XXXX-description.md` where:
+   - Filename: `docs/overpowered/{YYYY-MM-DD}/{task-slug}/research.md`
+     - Format where:
        - YYYY-MM-DD is today's date
-       - ENG-XXXX is the ticket number (omit if no ticket)
-       - description is a brief kebab-case description of the research topic
-     - Examples:
-       - With ticket: `2025-01-08-ENG-1478-parent-child-tracking.md`
-       - Without ticket: `2025-01-08-authentication-flow.md`
+       - `{task-slug}` is a short kebab-case name for the brainstorm topic. Create the folder if it doesn't exist. After writing, tell the user the folder path so they can find the files.
 
 6. **Generate research document:**
    - Use the metadata gathered in step 4
