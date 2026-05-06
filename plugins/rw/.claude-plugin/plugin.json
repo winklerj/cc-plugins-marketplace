@@ -1,6 +1,6 @@
 {
   "name": "rw",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Learning experiments and codebase documentation tools. Includes prevalidating assumptions, comparing approaches, guarding against regressions, and generating Diataxis-based documentation.",
   "author": {
     "name": "Robb Winkle",

@@ -72,7 +72,7 @@
       "name": "rw",
       "source": "./plugins/rw",
       "description": "Learning experiments and codebase documentation tools. Includes prevalidating assumptions, comparing approaches, guarding against regressions, and generating Diataxis-based documentation",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Robb Winkle"
       }
